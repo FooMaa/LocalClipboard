@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+usage() {
+    cat <<'EOF'
+Usage: scripts/build [-t desktop|linux|macos|windows|android] [-b DIR] [-c Debug|Release|RelWithDebInfo|MinSizeRel] [-j JOBS] [-a ABI] [-- CMAKE_OPTIONS...]
+Android: set QT_ANDROID_ROOT, QT_HOST_PATH, ANDROID_SDK_ROOT, ANDROID_NDK_ROOT.
+QT_ANDROID_ROOT is the Qt Android kit prefix, not the desktop Qt prefix.
+Default target: desktop. Android defaults to Debug (installable APK).
+EOF
+}
+fail() { echo "Error: $*" >&2; exit 1; }
+target=desktop
+build_dir=
+config=
+jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
+abi=arm64-v8a
+while getopts ':t:b:c:j:a:h' option; do
+    case "$option" in
+        t) target=$OPTARG ;; b) build_dir=$OPTARG ;; c) config=$OPTARG ;;
+        j) jobs=$OPTARG ;; a) abi=$OPTARG ;; h) usage; exit 0 ;;
+        :) fail "Option -$OPTARG requires a value" ;;
+        \?) fail "Unknown option -$OPTARG" ;;
+    esac
+done
+shift "$((OPTIND - 1))"
+[[ ${1:-} != -- ]] || shift
+[[ $# == 0 || ${1:-} == -D* || ${1:-} == -G* ]] || fail "Use -t to select a target"
+case "$target" in
+    desktop|linux|macos|windows|android) ;; *) fail "Unknown target: $target" ;;
+esac
+case "$target:$(uname -s)" in
+    linux:Linux|macos:Darwin|windows:MINGW*|windows:MSYS*|windows:CYGWIN*|desktop:*|android:*) ;;
+    *) fail "Target $target requires its native host; use a CMake toolchain for cross compilation" ;;
+esac
+[[ "$jobs" =~ ^[1-9][0-9]*$ ]] || fail "Jobs must be a positive integer"
+config=${config:-$([[ "$target" == android ]] && echo Debug || echo Release)}
+case "$config" in Debug|Release|RelWithDebInfo|MinSizeRel) ;; *) fail "Invalid configuration: $config" ;; esac
+build_dir=${build_dir:-"$ROOT/build_$target"}
+args=(-S "$ROOT" -B "$build_dir" "-DCMAKE_BUILD_TYPE=$config")
+if [[ "$target" == android ]]; then
+    case "$abi" in arm64-v8a|armeabi-v7a|x86|x86_64) ;; *) fail "Unsupported Android ABI: $abi" ;; esac
+    : "${QT_ANDROID_ROOT:?Set QT_ANDROID_ROOT to the Qt Android kit prefix}"
+    : "${QT_HOST_PATH:?Set QT_HOST_PATH to the matching desktop Qt prefix}"
+    : "${ANDROID_SDK_ROOT:?Set ANDROID_SDK_ROOT}"
+    : "${ANDROID_NDK_ROOT:?Set ANDROID_NDK_ROOT}"
+    [[ -x "$QT_ANDROID_ROOT/bin/qt-cmake" ]] || fail "Android qt-cmake not found"
+    [[ -d "$QT_HOST_PATH" && -d "$ANDROID_SDK_ROOT" && -f "$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" ]] || fail "Invalid Qt host, SDK or NDK path"
+    command -v java >/dev/null || fail "Java is required"
+    "$QT_ANDROID_ROOT/bin/qt-cmake" "${args[@]}" "-DQT_HOST_PATH=$QT_HOST_PATH" \
+        "-DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" "-DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT" \
+        "-DANDROID_ABI=$abi" "$@"
+    cmake --build "$build_dir" --config "$config" --parallel "$jobs" --target apk
+    echo "APK output: $build_dir/android-build/build/outputs/apk/ (Release requires signing before installation)"
+else
+    cmake "${args[@]}" "$@"
+    cmake --build "$build_dir" --config "$config" --parallel "$jobs" --target LocalClipboard
+fi

@@ -1,0 +1,13 @@
+[Unit]
+Description=LocalClipboard LAN Synchronization Daemon
+After=network.target network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/localclipboard
+Restart=on-failure
+RestartSec=5s
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=default.target

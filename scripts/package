@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+format=
+build_dir=
+usage() { echo "Usage: scripts/package -t deb|sh|apk [-b BUILD_DIR]"; }
+while getopts ':t:b:h' option; do
+    case "$option" in
+        t) format=$OPTARG ;; b) build_dir=$OPTARG ;; h) usage; exit 0 ;;
+        *) usage >&2; exit 1 ;;
+    esac
+done
+shift "$((OPTIND - 1))"
+[[ $# == 0 ]] || { usage >&2; exit 1; }
+mkdir -p "$ROOT/dist"
+case "$format" in
+    deb|sh)
+        build_dir=${build_dir:-"$ROOT/build_linux"}
+        [[ -f "$build_dir/LocalClipboard" ]] || { echo "Build Linux first or specify -b" >&2; exit 1; }
+        stage=$(mktemp -d)
+        trap 'rm -rf "$stage"' EXIT
+        if [[ "$format" == deb ]]; then
+            arch=$(dpkg --print-architecture)
+            mkdir -p "$stage/DEBIAN" "$stage/usr/bin"
+            cp "$build_dir/LocalClipboard" "$stage/usr/bin/localclipboard"
+            mkdir -p "$stage/debian"
+            printf 'Source: localclipboard\nSection: utils\nPriority: optional\nMaintainer: LocalClipboard <dev@localclipboard.org>\n\nPackage: localclipboard\nArchitecture: any\nDescription: LAN clipboard synchronization\n' > "$stage/debian/control"
+            runtime_depends=$(cd "$stage" && dpkg-shlibdeps -O -e"$stage/usr/bin/localclipboard")
+            runtime_depends=${runtime_depends#shlibs:Depends=}
+            rm -rf "$stage/debian"
+            cat > "$stage/DEBIAN/control" <<EOF
+Package: localclipboard
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: $arch
+Maintainer: LocalClipboard <dev@localclipboard.org>
+Depends: $runtime_depends, qt6-qpa-plugins
+Description: LAN text clipboard synchronization application
+EOF
+            dpkg-deb --build "$stage" "$ROOT/dist/localclipboard_$arch.deb"
+        else
+            cp "$build_dir/LocalClipboard" "$stage/localclipboard"
+            cat > "$stage/install.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+install -Dm755 localclipboard "$HOME/.local/bin/localclipboard"
+echo "Installed. Qt 6 runtime and a graphical desktop session are required."
+EOF
+            output="$ROOT/dist/localclipboard-installer.sh"
+            cat > "$output" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+line=$(awk '/^__ARCHIVE_BELOW__$/ {print NR + 1; exit}' "$0")
+tail -n +"$line" "$0" | tar xz -C "$stage"
+bash "$stage/install.sh"
+exit 0
+__ARCHIVE_BELOW__
+EOF
+            tar czf "$stage/payload.tar.gz" -C "$stage" localclipboard install.sh
+            cat "$stage/payload.tar.gz" >> "$output"
+            chmod +x "$output"
+        fi ;;
+    apk)
+        build_dir=${build_dir:-"$ROOT/build_android"}
+        [[ -d "$build_dir" ]] || { echo "Android build directory missing" >&2; exit 1; }
+        count=0
+        while IFS= read -r -d '' apk; do
+            cp "$apk" "$ROOT/dist/$(basename "$apk")"
+            count=$((count + 1))
+        done < <(find "$build_dir" -type f -path '*/outputs/apk/*' -name '*.apk' -print0)
+        [[ $count -gt 0 ]] || { echo "No APK found; build Android first" >&2; exit 1; } ;;
+    *) usage >&2; exit 1 ;;
+esac
