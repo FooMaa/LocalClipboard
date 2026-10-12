@@ -4,6 +4,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets)
+include(cmake/QtMacOSOpenGL.cmake)
+localclipboard_fix_macos_opengl()
 qt_add_executable(LocalClipboard MANUAL_FINALIZATION
     src/main.cpp
     src/ClipboardSync.h src/ClipboardSync.cpp
