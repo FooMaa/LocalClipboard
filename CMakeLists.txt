@@ -25,4 +25,9 @@ elseif(WIN32)
     set_target_properties(LocalClipboard PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 qt_finalize_executable(LocalClipboard)
-install(TARGETS LocalClipboard BUNDLE DESTINATION . RUNTIME DESTINATION bin)
+# On Android qt_add_executable creates a MODULE library packaged by androiddeployqt.
+install(TARGETS LocalClipboard
+    BUNDLE DESTINATION .
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+)
