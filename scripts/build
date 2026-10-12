@@ -46,8 +46,11 @@ if [[ "$target" == android ]]; then
     : "${ANDROID_NDK_ROOT:?Set ANDROID_NDK_ROOT}"
     [[ -x "$QT_ANDROID_ROOT/bin/qt-cmake" ]] || fail "Android qt-cmake not found"
     [[ -d "$QT_HOST_PATH" && -d "$ANDROID_SDK_ROOT" && -f "$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" ]] || fail "Invalid Qt host, SDK or NDK path"
+    [[ -f "$QT_HOST_PATH/lib/cmake/Qt6CoreTools/Qt6CoreToolsConfig.cmake" ]] || fail "QT_HOST_PATH must point to the desktop Qt kit containing Qt6CoreTools, not the Android kit: $QT_HOST_PATH"
+    [[ -x "$QT_HOST_PATH/libexec/moc" || -x "$QT_HOST_PATH/bin/moc" || -x "$QT_HOST_PATH/bin/moc.exe" ]] || fail "Qt host moc executable not found: $QT_HOST_PATH"
     command -v java >/dev/null || fail "Java is required"
     "$QT_ANDROID_ROOT/bin/qt-cmake" "${args[@]}" "-DQT_HOST_PATH=$QT_HOST_PATH" \
+        "-DQT_HOST_PATH_CMAKE_DIR=$QT_HOST_PATH/lib/cmake" \
         "-DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" "-DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT" \
         "-DANDROID_ABI=$abi" "$@"
     cmake --build "$build_dir" --config "$config" --parallel "$jobs" --target apk

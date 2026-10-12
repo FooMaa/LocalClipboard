@@ -62,16 +62,13 @@ jobs:
           target: android
           arch: android_arm64_v8a
           cache: true
-      - uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.8.3'
-          target: desktop
-          cache: true
       - name: Build Qt APK
         shell: bash
         run: |
-          export QT_HOST_PATH="$QT_ROOT_DIR"
-          export QT_ANDROID_ROOT="$(dirname "$QT_ROOT_DIR")/android_arm64_v8a"
+          # The Android install action also installs matching desktop tools
+          # and exports QT_HOST_PATH from the kit's target_qt.conf.
+          export QT_ANDROID_ROOT="$QT_ROOT_DIR"
+          : "${QT_HOST_PATH:?Qt installer did not provide the desktop host kit}"
           export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125"
           ./scripts/build -t android -c Debug
           ./scripts/package -t apk
