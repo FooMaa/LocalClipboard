@@ -98,7 +98,12 @@ INSTALLER
         command -v macdeployqt >/dev/null || fail "macdeployqt must be on PATH"
         mkdir -p "$stage/root/Applications" "$stage/scripts"
         cp -R "$app" "$stage/root/Applications/"
-        deploy_args=(-always-overwrite -no-plugins -no-codesign)
+        deploy_args=(-always-overwrite -no-plugins)
+        # Older Qt releases (including CI's 6.8) do not accept -no-codesign.
+        # Defer signing when supported; the completed bundle is signed below.
+        if [[ "$(macdeployqt -help 2>&1)" == *"-no-codesign"* ]]; then
+            deploy_args+=(-no-codesign)
+        fi
         command -v qtpaths >/dev/null || fail "qtpaths must be on PATH"
         plugin_root=$(qtpaths --query QT_INSTALL_PLUGINS)
         deployed_app="$stage/root/Applications/LocalClipboard.app"
