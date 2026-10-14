@@ -32,6 +32,8 @@ private:
     SyncEngine *m_engine = nullptr;
     QListWidget *m_peers = nullptr;
     QLabel *m_status = nullptr;
+    QLabel *m_empty = nullptr;
+    QLabel *m_log = nullptr;
     QCheckBox *m_pause = nullptr;
     QSystemTrayIcon *m_tray = nullptr;
     QString m_lastHash;

@@ -30,6 +30,12 @@ case "$format" in
         [[ -f "$build_dir/LocalClipboard" ]] || fail "Build Linux first"
         arch=$(dpkg --print-architecture)
         mkdir -p "$stage/root/DEBIAN" "$stage/root/usr/bin" "$stage/root/usr/share/applications" "$stage/root/usr/share/doc/localclipboard"
+        mkdir -p "$stage/root/usr/share/icons/hicolor/scalable/apps"
+        cp "$ROOT/assets/icons/localclipboard.svg" "$stage/root/usr/share/icons/hicolor/scalable/apps/"
+        for size in 16 24 32 48 64 128 256 512; do
+            mkdir -p "$stage/root/usr/share/icons/hicolor/${size}x${size}/apps"
+            cp "$ROOT/assets/icons/localclipboard-$size.png" "$stage/root/usr/share/icons/hicolor/${size}x${size}/apps/localclipboard.png"
+        done
         cp "$build_dir/LocalClipboard" "$stage/root/usr/bin/localclipboard"
         cp "$ROOT/packaging/linux/localclipboard.desktop" "$stage/root/usr/share/applications/"
         cp "$ROOT/third_party/monocypher/LICENCE.md" "$stage/root/usr/share/doc/localclipboard/monocypher-license"
@@ -54,26 +60,15 @@ Section: utils
 Priority: optional
 Architecture: $arch
 Maintainer: LocalClipboard <dev@localclipboard.org>
-Depends: $runtime_depends, qt6-qpa-plugins
+Depends: $runtime_depends, qt6-qpa-plugins, policykit-1
 Description: Personal encrypted LAN clipboard synchronization
  Text, photos and files. Register separate personal profiles on first launch.
 CONTROL
         package="$ROOT/dist/LocalClipboard-linux-$arch.deb"
         dpkg-deb --build --root-owner-group "$stage/root" "$package"
         cp "$package" "$stage/localclipboard.deb"
-        cat > "$stage/install.sh" <<'INSTALL'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ $EUID != 0 ]] || { echo "Run this installer as your desktop user; it will request sudo for package installation." >&2; exit 1; }
-command -v apt-get >/dev/null || { echo "This package supports Debian/Ubuntu. Build from source on other distributions." >&2; exit 1; }
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
-sudo apt-get install -y ./localclipboard.deb
-if [[ -n ${DISPLAY:-}${WAYLAND_DISPLAY:-} ]]; then
-    nohup /usr/bin/localclipboard >/dev/null 2>&1 &
-else
-    echo "Installed. Open LocalClipboard in your desktop session to register this device."
-fi
-INSTALL
+        cp "$ROOT/packaging/common/language.sh" "$stage/language.sh"
+        cp "$ROOT/packaging/linux/install.sh" "$stage/install.sh"
         output="$ROOT/dist/LocalClipboard-linux-$arch-installer.sh"
         cat > "$output" <<'INSTALLER'
 #!/usr/bin/env bash
@@ -86,7 +81,7 @@ bash "$stage/install.sh"
 exit 0
 __ARCHIVE_BELOW__
 INSTALLER
-        tar czf "$stage/payload.tar.gz" -C "$stage" localclipboard.deb install.sh
+        tar czf "$stage/payload.tar.gz" -C "$stage" localclipboard.deb install.sh language.sh
         cat "$stage/payload.tar.gz" >> "$output"
         chmod +x "$output"
         ;;
@@ -126,15 +121,16 @@ INSTALLER
         mkdir -p "$stage/root/Applications/LocalClipboard.app/Contents/Resources/licenses"
         cp "$ROOT/third_party/monocypher/LICENCE.md" "$stage/root/Applications/LocalClipboard.app/Contents/Resources/licenses/monocypher.txt"
         if [[ -n ${MACOS_APP_SIGN_IDENTITY:-} ]]; then
-            codesign --force --deep --options runtime --timestamp --sign "$MACOS_APP_SIGN_IDENTITY" "$stage/root/Applications/LocalClipboard.app"
+            codesign --force --deep --options runtime --timestamp --entitlements "$ROOT/packaging/macos/entitlements.plist" --sign "$MACOS_APP_SIGN_IDENTITY" "$stage/root/Applications/LocalClipboard.app"
         else
             codesign --force --deep --sign - "$stage/root/Applications/LocalClipboard.app"
         fi
         codesign --verify --deep --strict "$stage/root/Applications/LocalClipboard.app"
         python3 "$ROOT/scripts/verify-macos-bundle" "$stage/root/Applications/LocalClipboard.app"
-        ditto -c -k --keepParent "$stage/root/Applications/LocalClipboard.app" "$ROOT/dist/LocalClipboard-macos-package.zip"
+        ditto -c -k "$stage/root/Applications" "$ROOT/dist/LocalClipboard-macos-package.zip"
         cp "$ROOT/packaging/macos/postinstall" "$stage/scripts/postinstall"
-        chmod +x "$stage/scripts/postinstall"
+        cp "$ROOT/packaging/macos/preinstall" "$stage/scripts/preinstall"
+        chmod +x "$stage/scripts/preinstall" "$stage/scripts/postinstall"
         pkgbuild --analyze --root "$stage/root" "$stage/components.plist"
         python3 - "$stage/components.plist" <<'PY'
 import plistlib, sys
@@ -147,7 +143,12 @@ with open(sys.argv[1], 'wb') as stream:
 PY
         pkgbuild --root "$stage/root" --identifier org.localclipboard --version "$version" \
             --component-plist "$stage/components.plist" --install-location / --scripts "$stage/scripts" "$stage/component.pkg"
-        pkg_args=(--package "$stage/component.pkg")
+        mkdir -p "$stage/removal-scripts"
+        cp "$ROOT/packaging/macos/remove-postinstall" "$stage/removal-scripts/postinstall"
+        chmod +x "$stage/removal-scripts/postinstall"
+        pkgbuild --nopayload --identifier org.localclipboard.removal --version "$version" \
+            --scripts "$stage/removal-scripts" "$stage/removal.pkg"
+        pkg_args=(--distribution "$ROOT/packaging/macos/distribution.xml" --package-path "$stage" --resources "$ROOT/packaging/macos/resources")
         [[ -z ${MACOS_INSTALLER_SIGN_IDENTITY:-} ]] || pkg_args+=(--sign "$MACOS_INSTALLER_SIGN_IDENTITY")
         productbuild "${pkg_args[@]}" "$ROOT/dist/LocalClipboard-macos-installer.pkg"
         ;;
@@ -208,8 +209,8 @@ PY
         cp "$apk" "$ROOT/dist/LocalClipboard-android-package.apk"
         mkdir -p "$stage/android-installer"
         cp "$apk" "$stage/android-installer/LocalClipboard.apk"
-        cp "$ROOT/packaging/android/install.sh" "$ROOT/packaging/android/install.ps1" "$ROOT/packaging/android/README.md" "$stage/android-installer/"
-        chmod +x "$stage/android-installer/install.sh"
+        cp "$ROOT/packaging/android/install.sh" "$ROOT/packaging/android/install.ps1" "$ROOT/packaging/common/language.sh" "$ROOT/packaging/android/README.md" "$stage/android-installer/"
+        chmod +x "$stage/android-installer/"*.sh
         cp "$ROOT/third_party/monocypher/LICENCE.md" "$stage/android-installer/monocypher-license.txt"
         (cd "$stage/android-installer" && zip -qr "$ROOT/dist/LocalClipboard-android-installer.zip" .)
         ;;

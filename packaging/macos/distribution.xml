@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+  <title>LocalClipboard</title>
+  <welcome file="welcome.html" mime-type="text/html"/>
+  <options customize="always" require-scripts="false"/>
+  <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+  <choices-outline><line choice="localclipboard"/><line choice="remove"/></choices-outline>
+  <choice id="localclipboard" title="INSTALL_TITLE" description="INSTALL_HELP" enabled="false" selected="!choices['remove'].selected"><pkg-ref id="org.localclipboard"/></choice>
+  <choice id="remove" title="REMOVE_TITLE" description="REMOVE_HELP" start_selected="false" enabled="system.files.fileExistsAtPath('/Applications/LocalClipboard.app/Contents/Info.plist')"><pkg-ref id="org.localclipboard.removal"/></choice>
+  <pkg-ref id="org.localclipboard">component.pkg</pkg-ref>
+  <pkg-ref id="org.localclipboard.removal">removal.pkg</pkg-ref>
+</installer-gui-script>

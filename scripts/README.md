@@ -79,3 +79,31 @@ accepts `IOS_DEVICE_ID` to install/launch with `xcrun devicectl`. Otherwise it o
 Xcode for interactive signing and Run. The installer contains complete build source,
 not a machine-specific generated Xcode project or another person's provisioning.
 See [iOS installation](../packaging/ios/README.md) for permissions, pairing and limits.
+
+## Installer languages and uninstallers
+
+Both languages are compiled into the application without Qt Linguist or separate
+translation downloads. Every registration form offers Русский / English and saves
+the preference for later launches. NSIS explicitly offers both languages and
+passes the choice to the app. Shell installers accept `LC_LANGUAGE=ru|en` or
+prompt in a terminal. The macOS PKG includes `en.lproj` / `ru.lproj` welcome pages;
+its first-run registration wizard offers the explicit language choice.
+
+The same installer handles reinstall and removal. macOS uses mutually exclusive
+PKG choices: choosing Remove deselects the application payload and runs a guarded
+script-only removal component. Removal is disabled without an installed bundle.
+The ZIP contains only the main app. Legacy separate removal launchers are cleaned
+up during removal. The PKG keeps user data and removes the current user's launchd entry.
+NSIS detects the recorded Windows installation directory and delegates removal to
+its installed uninstaller, including the optional data-erasure dialog. Linux checks
+DEB status before offering reinstall/remove/cancel. Android queries the selected
+ADB device; iOS queries installed apps with devicectl when IOS_DEVICE_ID is provided.
+Phone removal requires DELETE confirmation. Shell scripts accept LC_ACTION for
+explicit action selection; Android PowerShell accepts -Action. Reinstall keeps data.
+All of these are included by the existing `installers` target; output counts stay
+at five packages and five installers.
+
+`python3 tests/PackagingTests.py` checks device arguments, confirmation and macOS
+removal-path guards without removing an installation or contacting a device.
+Qt app tests cover language persistence, invalid registration, layouts at 360 / 520
+pixels with normal / larger text, instance quit IPC and background synchronization.

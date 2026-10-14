@@ -7,6 +7,8 @@
 class QCoreApplication;
 class QWidget;
 namespace AndroidBridge {
+QString installationLanguage();
+void setLanguage(const QString &language);
 bool setEnabled(bool enabled);
 void startService(bool bootEnabled);
 void stopService();

@@ -3,6 +3,6 @@ Type=Application
 Name=LocalClipboard
 Comment=Personal encrypted LAN clipboard synchronization
 Exec=localclipboard
-Icon=edit-paste
+Icon=localclipboard
 Categories=Utility;
 Terminal=false

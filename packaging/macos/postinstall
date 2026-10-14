@@ -1,7 +1,14 @@
 #!/bin/bash
 # The profile is created by the GUI as the logged-in user, never by Installer's root process.
+# Older packages installed a separate removal launcher; the PKG now owns that action.
+legacy='/Applications/Uninstall LocalClipboard.app'
+if [[ ! -L "$legacy" && -d "$legacy" && ! -L "$legacy/Contents" && ! -L "$legacy/Contents/Info.plist" ]]; then
+    if [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$legacy/Contents/Info.plist" 2>/dev/null) == org.localclipboard.uninstaller ]]; then
+        /bin/rm -rf -- "$legacy"
+    fi
+fi
 console_user=$(/usr/bin/stat -f '%Su' /dev/console)
 case "$console_user" in root|loginwindow|_mbsetupuser|'') exit 0 ;; esac
 console_uid=$(/usr/bin/id -u "$console_user")
-/bin/launchctl asuser "$console_uid" /usr/bin/sudo -u "$console_user" /usr/bin/open -a /Applications/LocalClipboard.app || true
+/bin/launchctl asuser "$console_uid" /usr/bin/sudo -u "$console_user" /usr/bin/open -n -a /Applications/LocalClipboard.app || true
 exit 0

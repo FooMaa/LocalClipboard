@@ -86,3 +86,16 @@ Device validation: first-run registration and paste/network permissions; send te
 PNG, photo, empty file and multi-file batches in both directions; verify another
 personal profile is invisible; suspend/resume; retry an imported file after an
 interrupted transfer; install a new build over the old one and check profile retention.
+
+## Language and uninstall
+
+Choose Русский or English in the installer script or in the app's registration
+wizard. The app also has a language picker for later changes.
+`LC_LANGUAGE=ru ./install.sh` selects Russian without a terminal prompt.
+
+Run the same `install.sh` again to manage an installed app: choose reinstall,
+uninstall or cancel. Removal requires `DELETE` and deletes this device's local
+app data. Reinstall preserves the profile. The OS's Delete App action also works.
+Set `IOS_DEVICE_ID` and your actual `IOS_BUNDLE_ID` to enable installation detection
+and removal. Removal needs Xcode devicectl but does not need Qt or a new build.
+Without a device ID installation proceeds through Xcode.

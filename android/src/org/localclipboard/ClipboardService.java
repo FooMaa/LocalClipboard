@@ -18,15 +18,15 @@ public final class ClipboardService extends QtService {
         PendingIntent pending = PendingIntent.getActivity(this, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, "clipboard")
-                .setSmallIcon(android.R.drawable.ic_menu_share)
+                .setSmallIcon(org.localclipboard.R.drawable.ic_notification)
                 .setContentTitle("LocalClipboard").setContentText(text)
                 .setContentIntent(pending).setOngoing(ongoing).setAutoCancel(!ongoing).build();
     }
     @Override public void onCreate() {
         instance = this;
         NotificationManager manager = getSystemService(NotificationManager.class);
-        manager.createNotificationChannel(new NotificationChannel("clipboard", "Clipboard synchronization", NotificationManager.IMPORTANCE_LOW));
-        Notification current = notification("Listening for your registered devices", true);
+        manager.createNotificationChannel(new NotificationChannel("clipboard", ClipboardActivity.text(this, "Clipboard synchronization", "Синхронизация буфера"), NotificationManager.IMPORTANCE_LOW));
+        Notification current = notification(ClipboardActivity.text(this, "Listening for your registered devices", "Ожидание ваших устройств"), true);
         if (Build.VERSION.SDK_INT >= 29) startForeground(1, current, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
         else startForeground(1, current);
         WifiManager wifi = (WifiManager)getApplicationContext().getSystemService(WIFI_SERVICE);
@@ -43,7 +43,7 @@ public final class ClipboardService extends QtService {
     public static void received() {
         ClipboardService service = instance;
         if (service != null) service.getSystemService(NotificationManager.class)
-                .notify(2, service.notification("Clipboard received — tap to apply", false));
+                .notify(2, service.notification(ClipboardActivity.text(service, "Clipboard received — tap to apply", "Буфер получен — нажмите, чтобы применить"), false));
     }
     @Override public void onDestroy() {
         instance = null;

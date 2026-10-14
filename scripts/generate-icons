@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Regenerate committed platform assets from the SVG; requires Qt's host Svg kit."""
+from pathlib import Path
+import json
+import os
+import struct
+import subprocess
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+ICONS = ROOT / 'assets/icons'
+SIZES = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
+
+def run(*args):
+    subprocess.run(args, check=True, env=dict(os.environ, QT_QPA_PLATFORM='offscreen'))
+
+with tempfile.TemporaryDirectory(prefix='localclipboard-icons-') as temporary:
+    work = Path(temporary)
+    (work / 'CMakeLists.txt').write_text('cmake_minimum_required(VERSION 3.21)\nproject(IconRenderer LANGUAGES CXX)\nfind_package(Qt6 REQUIRED COMPONENTS Gui Svg)\nadd_executable(render "' + (ROOT / 'scripts/icon-renderer.cpp').as_posix() + '")\ntarget_link_libraries(render PRIVATE Qt6::Gui Qt6::Svg)\n')
+    run('cmake', '-S', str(work), '-B', str(work / 'build'))
+    run('cmake', '--build', str(work / 'build'))
+    renderer = str(work / 'build/render')
+    def render(source, size, output):
+        output.parent.mkdir(parents=True, exist_ok=True)
+        run(renderer, str(source), str(size), str(output))
+    source = ICONS / 'localclipboard.svg'
+    for size in SIZES:
+        render(source, size, ICONS / f'localclipboard-{size}.png')
+    for size in (32, 64):
+        render(ICONS / 'localclipboard-monochrome.svg', size, ICONS / f'localclipboard-tray-{size}.png')
+    foreground = work / 'foreground.svg'
+    foreground.write_text(source.read_text().replace('<rect width="1024" height="1024" rx="224" fill="url(#blue)"/>', '').replace('<g id="mark">', '<g id="mark" transform="translate(51.2 51.2) scale(0.9)">'))
+    render(foreground, 432, ROOT / 'android/res/drawable-nodpi/ic_launcher_foreground.png')
+    # PNG-backed ICO entries are supported by all targeted Windows versions.
+    entries = [((ICONS / f'localclipboard-{size}.png').read_bytes(), size) for size in SIZES if size <= 256]
+    offset = 6 + 16 * len(entries)
+    header = struct.pack('<HHH', 0, 1, len(entries))
+    body = b''
+    for data, size in entries:
+        header += struct.pack('<BBBBHHII', size % 256, size % 256, 0, 0, 1, 32, len(data), offset)
+        body += data
+        offset += len(data)
+    (ICONS / 'localclipboard.ico').write_bytes(header + body)
+    # Native ICNS contains Retina and regular representations, without iconutil.
+    body = b''
+    for kind, size in [('icp4', 16), ('icp5', 32), ('icp6', 64), ('ic07', 128), ('ic08', 256), ('ic09', 512), ('ic10', 1024), ('ic11', 32), ('ic12', 64), ('ic13', 256), ('ic14', 512)]:
+        data = (ICONS / f'localclipboard-{size}.png').read_bytes()
+        body += kind.encode() + struct.pack('>I', len(data) + 8) + data
+    (ICONS / 'localclipboard.icns').write_bytes(b'icns' + struct.pack('>I', len(body) + 8) + body)
+    # iOS masks the icon itself; provide an opaque square, with no baked-in corners.
+    square = work / 'square.svg'
+    square.write_text(source.read_text().replace('rx="224"', 'rx="0"'))
+    catalog = ROOT / 'ios/Assets.xcassets'
+    appicon = catalog / 'AppIcon.appiconset'
+    appicon.mkdir(parents=True, exist_ok=True)
+    (catalog / 'Contents.json').write_text(json.dumps({'info': {'author': 'xcode', 'version': 1}}, indent=2) + '\n')
+    images = []
+    for idiom, point_sizes in [('iphone', (20, 29, 40, 60)), ('ipad', (20, 29, 40, 76, 83.5))]:
+        for points in point_sizes:
+            for scale in ((2, 3) if idiom == 'iphone' else ((2,) if points == 83.5 else (1, 2))):
+                size = int(points * scale)
+                filename = f'{idiom}-{points}-{scale}x.png'
+                render(square, size, appicon / filename)
+                images.append({'idiom': idiom, 'size': f'{points}x{points}', 'scale': f'{scale}x', 'filename': filename})
+    render(square, 1024, appicon / 'store-1024.png')
+    images.append({'idiom': 'ios-marketing', 'size': '1024x1024', 'scale': '1x', 'filename': 'store-1024.png'})
+    (appicon / 'Contents.json').write_text(json.dumps({'images': images, 'info': {'author': 'xcode', 'version': 1}}, indent=2) + '\n')
+    for density, size in [('mdpi', 48), ('hdpi', 72), ('xhdpi', 96), ('xxhdpi', 144), ('xxxhdpi', 192)]:
+        render(source, size, ROOT / f'android/res/mipmap-{density}/ic_launcher.png')
+print('Updated app icons for all five platforms.')

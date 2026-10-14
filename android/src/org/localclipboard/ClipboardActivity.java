@@ -44,6 +44,19 @@ public final class ClipboardActivity extends QtActivity {
         if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(service); else context.startService(service);
     }
     public static void stopSync(Context context) { context.stopService(new Intent(context, ClipboardService.class)); }
+    public static void setLanguage(Context context, String language) {
+        context.getSharedPreferences("startup", Context.MODE_PRIVATE).edit().putString("language", language).apply();
+    }
+    public static String text(Context context, String english, String russian) {
+        String language = context.getSharedPreferences("startup", Context.MODE_PRIVATE).getString("language", java.util.Locale.getDefault().getLanguage());
+        return "ru".equals(language) ? russian : english;
+    }
+    public static String installationLanguage(Context context) {
+        if (!(context instanceof ClipboardActivity)) return "";
+        String language = ((ClipboardActivity)context).getIntent().getStringExtra("localclipboard_language");
+        ((ClipboardActivity)context).getIntent().removeExtra("localclipboard_language");
+        return "ru".equals(language) || "en".equals(language) ? language : "";
+    }
     public static String takeShare() { return pendingShare.getAndSet(""); }
     private void handleShare(Intent intent) {
         String action = intent.getAction();
@@ -94,7 +107,7 @@ public final class ClipboardActivity extends QtActivity {
                 // Do not overwrite an unconsumed share; keep the user informed.
                 if (!pendingShare.compareAndSet("", result.toString())) {
                     deleteFolder(folder);
-                    runOnUiThread(() -> android.widget.Toast.makeText(this, "Previous share is still waiting. Open LocalClipboard and try again.", android.widget.Toast.LENGTH_LONG).show());
+                    runOnUiThread(() -> android.widget.Toast.makeText(this, text(this, "Previous share is still waiting. Open LocalClipboard and try again.", "Предыдущая отправка ещё ожидает. Откройте LocalClipboard и попробуйте снова."), android.widget.Toast.LENGTH_LONG).show());
                 }
             } catch (Exception e) {
                 deleteFolder(folder);
@@ -129,6 +142,6 @@ public final class ClipboardActivity extends QtActivity {
             Intent open = new Intent(Intent.ACTION_VIEW).setDataAndType(uri(context, path), mime(path))
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(open);
-        } catch (Exception e) { android.widget.Toast.makeText(context, "No app can open this file.", android.widget.Toast.LENGTH_LONG).show(); }
+        } catch (Exception e) { android.widget.Toast.makeText(context, text(context, "No app can open this file.", "Нет приложения для открытия этого файла."), android.widget.Toast.LENGTH_LONG).show(); }
     }
 }

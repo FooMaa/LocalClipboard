@@ -1,0 +1,37 @@
+#!/bin/bash
+# No payload: runs only when Remove is explicitly selected in the same PKG.
+set -euo pipefail
+app=/Applications/LocalClipboard.app
+legacy='/Applications/Uninstall LocalClipboard.app'
+validate_bundle() {
+    [[ ! -L "$1" && -d "$1" && ! -L "$1/Contents" && ! -L "$1/Contents/Info.plist" ]] || return 1
+    [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist") == "$2" ]]
+}
+# A missing application is a successful, idempotent removal.
+if [[ -e "$app" || -L "$app" ]]; then
+    validate_bundle "$app" org.localclipboard || { echo 'Refusing to remove an unrelated or linked application.' >&2; exit 1; }
+fi
+if [[ -e "$legacy" || -L "$legacy" ]]; then
+    validate_bundle "$legacy" org.localclipboard.uninstaller || { echo 'Refusing to remove an unrelated legacy application.' >&2; exit 1; }
+fi
+[[ ${1:-} != --dry-run ]] || exit 0
+[[ $EUID == 0 ]] || { echo 'Run removal through the LocalClipboard installer.' >&2; exit 1; }
+console_user=$(/usr/bin/stat -f '%Su' /dev/console)
+case "$console_user" in root|loginwindow|_mbsetupuser|'') ;; *)
+    console_uid=$(/usr/bin/id -u "$console_user")
+    /bin/launchctl bootout "gui/$console_uid/org.localclipboard" 2>/dev/null || true
+    user_home=$(/usr/bin/dscl . -read "/Users/$console_user" NFSHomeDirectory | /usr/bin/sed 's/^NFSHomeDirectory: //')
+    [[ "$user_home" == /* && "$user_home" != / ]] || exit 1
+    /bin/rm -f -- "$user_home/Library/LaunchAgents/org.localclipboard.plist"
+    ;;
+esac
+while read -r pid owner executable; do
+    if [[ $executable == "$app/Contents/MacOS/LocalClipboard" ]]; then
+        /bin/kill -TERM "$pid" 2>/dev/null || true
+    fi
+done < <(/bin/ps -axo pid=,uid=,comm=)
+/bin/rm -rf -- "$app"
+# Clean up the separate launcher installed by previous builds.
+[[ ! -d "$legacy" ]] || /bin/rm -rf -- "$legacy"
+# Personal registration, received files and language preference are kept.
+exit 0

@@ -2,6 +2,11 @@
 #include "Autostart.h"
 #include "ClipboardPayload.h"
 #include "Registration.h"
+#include "I18n.h"
+#include "Ui.h"
+#include "Uninstall.h"
+#include <QComboBox>
+#include <QHBoxLayout>
 #include "SyncEngine.h"
 #include <QApplication>
 #include <QCheckBox>
@@ -40,45 +45,63 @@
 
 ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWindow(parent), m_profile(profile) {
     setWindowTitle("LocalClipboard — " + m_profile.ownerName);
-    resize(600, 460);
+    resize(580, 760);
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
-    auto *intro = new QLabel("Your profile: " + profile.ownerName + " · Device: " + profile.deviceName +
-        "\nOnly devices registered with your connection code synchronize. Text, images and files stay on your LAN.", central);
-    intro->setWordWrap(true); layout->addWidget(intro);
+    layout->setContentsMargins(24, 24, 24, 24); layout->setSpacing(12);
+    layout->addWidget(Ui::languagePicker(central), 0, Qt::AlignRight);
+    layout->addWidget(Ui::label("LocalClipboard", central, "heading"));
+    auto *intro = Ui::label("", central);
+    const auto updateProfile = [this, intro] {
+        intro->setText(I18n::text("Your profile: %1 · Device: %2").arg(m_profile.ownerName, m_profile.deviceName));
+        setWindowTitle("LocalClipboard — " + m_profile.ownerName);
+    };
+    updateProfile(); connect(&I18n::instance(), &I18n::languageChanged, this, updateProfile);
+    layout->addWidget(intro);
+    layout->addWidget(Ui::label("Only devices registered with your connection code synchronize. Text, images and files stay on your LAN.", central, "muted"));
 #ifdef Q_OS_ANDROID
-    auto *androidNote = new QLabel("Background reception is enabled. Tap a received-item notification to apply it. "
-        "Android permits clipboard reading only while this app has focus. You can also send photos or files with Share → LocalClipboard.", central);
-    androidNote->setWordWrap(true); layout->addWidget(androidNote);
+    layout->addWidget(Ui::label("Background reception is enabled. Tap a received-item notification to apply it. Android permits clipboard reading only while this app has focus. You can also send photos or files with Share → LocalClipboard.", central, "muted"));
 #endif
 #ifdef Q_OS_IOS
-    auto *iosNote = new QLabel("Keep this app open to receive. Tap Send current clipboard to send text or images. "
-        "Use Files / Photos, or Open in LocalClipboard from another app, to send files. "
-        "Add your computer's local IP in Network settings and allow Local Network access.", central);
-    iosNote->setWordWrap(true); layout->addWidget(iosNote);
+    layout->addWidget(Ui::label("Keep this app open to receive. Tap Send current clipboard to send text or images. Use Files / Photos, or Open in LocalClipboard from another app, to send files. Add your computer's local IP in Network settings and allow Local Network access.", central, "muted"));
 #endif
-    m_peers = new QListWidget(central); layout->addWidget(m_peers, 1);
-    m_pause = new QCheckBox("Pause synchronization", central); m_pause->setChecked(profile.paused); layout->addWidget(m_pause);
-    auto *startup = new QCheckBox("Start in background at login / device restart", central);
-    startup->setChecked(profile.autostart); layout->addWidget(startup);
-    auto *network = new QPushButton("Network settings…", central); layout->addWidget(network);
+    layout->addWidget(Ui::label("Your devices", central, "section"));
+    m_peers = new QListWidget(central); m_peers->setMinimumHeight(100); m_peers->setMaximumHeight(160);
+    m_peers->setWordWrap(true); layout->addWidget(m_peers);
+    m_empty = Ui::label("No devices online yet. Open LocalClipboard on another device with the same profile.", central, "muted"); layout->addWidget(m_empty);
+    m_status = Ui::label("", central, "section"); layout->addWidget(m_status);
+    m_log = Ui::label("", central, "muted"); layout->addWidget(m_log);
+    layout->addWidget(Ui::label("Send", central, "section"));
+    auto *send = Ui::button("Send clipboard", central, true);
+    auto *files = Ui::button("Send files / photos…", central);
+    auto *received = Ui::button("Received files", central);
+    layout->addWidget(send); layout->addWidget(files); layout->addWidget(received);
+    layout->addWidget(Ui::label("Settings", central, "section"));
+    m_pause = Ui::checkBox("Pause synchronization", central); m_pause->setChecked(profile.paused); layout->addWidget(m_pause);
+    auto *startup = Ui::checkBox("Start automatically", central); startup->setChecked(profile.autostart);
+#ifndef Q_OS_IOS
+    layout->addWidget(startup);
+#endif
+    auto *network = Ui::button("Network settings…", central); layout->addWidget(network);
     connect(network, &QPushButton::clicked, this, &ClipboardSync::networkSettings);
-    auto *send = new QPushButton("Send current clipboard", central);
-    auto *files = new QPushButton("Send files / photos…", central);
-    auto *pair = new QPushButton("Connect another device…", central);
-    auto *change = new QPushButton("Change personal profile…", central);
-    auto *received = new QPushButton("Open received files", central);
-    auto *quit = new QPushButton("Quit LocalClipboard", central);
-    layout->addWidget(send); layout->addWidget(files); layout->addWidget(pair); layout->addWidget(change); layout->addWidget(received);
-    layout->addWidget(quit);
-    m_status = new QLabel(central); layout->addWidget(m_status); setCentralWidget(central);
+    auto *pair = Ui::button("Connect device…", central);
+    auto *change = Ui::button("Change profile…", central);
+    auto *quit = Ui::button("Quit LocalClipboard", central);
 #ifdef Q_OS_IOS
     startup->hide(); quit->hide();
-    // Phone screens must remain usable with larger accessibility text sizes.
-    takeCentralWidget();
-    auto *scroll = new QScrollArea(this); scroll->setWidgetResizable(true); scroll->setWidget(central);
-    setCentralWidget(scroll);
 #endif
+    layout->addWidget(pair); layout->addWidget(change);
+#ifndef Q_OS_IOS
+    layout->addWidget(quit);
+#endif
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
+    auto *uninstall = Ui::button("Uninstall…", central); layout->addWidget(uninstall);
+    connect(uninstall, &QPushButton::clicked, this, [this] { Uninstall::launch(this); });
+#endif
+    layout->addStretch();
+    auto *scroll = new QScrollArea(this); scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); scroll->setWidget(central); setCentralWidget(scroll);
+    connect(&I18n::instance(), &I18n::languageChanged, this, &ClipboardSync::refresh);
     connect(send, &QPushButton::clicked, this, [this] { sendClipboard(true); });
     connect(quit, &QPushButton::clicked, this, [] {
 #ifdef Q_OS_ANDROID
@@ -98,7 +121,7 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
             else self->log("Files saved for sending when a registered device is online.");
         });
 #else
-        const QList<QUrl> urls = QFileDialog::getOpenFileUrls(this, "Select files or photos");
+        const QList<QUrl> urls = QFileDialog::getOpenFileUrls(this, I18n::text("Select files or photos"));
         if (urls.isEmpty()) return;
         QString error;
         const QJsonObject payload = ClipboardPayload::fromFiles(urls, &error);
@@ -106,13 +129,11 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
 #endif
     });
     connect(pair, &QPushButton::clicked, this, [this] { showInvitation(m_profile, this); });
-    connect(change, &QPushButton::clicked, this, [this, intro, startup] {
+    connect(change, &QPushButton::clicked, this, [this, startup, updateProfile] {
         Profile next = m_profile;
         if (!registerDevice(&next, this)) return;
         m_profile = next; m_lastHash.clear(); m_pause->setChecked(false); startup->setChecked(next.autostart);
-        setWindowTitle("LocalClipboard — " + next.ownerName);
-        intro->setText("Your profile: " + next.ownerName + " · Device: " + next.deviceName +
-            "\nOnly devices registered with your connection code synchronize. Text, images and files stay on your LAN.");
+        updateProfile();
         QString error;
         if (!Autostart::setEnabled(next.autostart, &error)) log(error);
         startEngine();
@@ -149,14 +170,24 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
     const auto initial = ClipboardPayload::capture(QApplication::clipboard()->mimeData(), &ignored);
     if (!initial.isEmpty()) m_lastHash = ClipboardPayload::hash(initial);
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
-        m_tray = new QSystemTrayIcon(style()->standardIcon(QStyle::SP_FileDialogContentsView), this);
+        QIcon trayIcon = QApplication::windowIcon();
+#ifdef Q_OS_MACOS
+        trayIcon = QIcon();
+        trayIcon.addFile(":/icons/localclipboard-tray-32.png");
+        trayIcon.addFile(":/icons/localclipboard-tray-64.png");
+        trayIcon.setIsMask(true);
+#endif
+        m_tray = new QSystemTrayIcon(trayIcon, this);
         m_tray->setToolTip("LocalClipboard — " + profile.ownerName);
         auto *menu = new QMenu(this);
-        menu->addAction("Open LocalClipboard", this, &ClipboardSync::showSettings);
-        auto *pause = menu->addAction("Pause synchronization"); pause->setCheckable(true); pause->setChecked(profile.paused);
+        auto *open = menu->addAction(I18n::text("Open LocalClipboard"), this, &ClipboardSync::showSettings);
+        auto *pause = menu->addAction(I18n::text("Pause synchronization")); pause->setCheckable(true); pause->setChecked(profile.paused);
         connect(pause, &QAction::toggled, m_pause, &QCheckBox::setChecked);
         connect(m_pause, &QCheckBox::toggled, pause, &QAction::setChecked);
-        menu->addSeparator(); menu->addAction("Quit", qApp, &QCoreApplication::quit);
+        menu->addSeparator(); auto *exit = menu->addAction(I18n::text("Quit"), qApp, &QCoreApplication::quit);
+        connect(&I18n::instance(), &I18n::languageChanged, menu, [open, pause, exit] {
+            open->setText(I18n::text("Open LocalClipboard")); pause->setText(I18n::text("Pause synchronization")); exit->setText(I18n::text("Quit"));
+        });
         m_tray->setContextMenu(menu);
         connect(m_tray, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason r) {
             if (r == QSystemTrayIcon::Trigger || r == QSystemTrayIcon::DoubleClick) showSettings();
@@ -271,13 +302,14 @@ void ClipboardSync::refresh() {
 #else
     if (m_engine) m_peers->addItems(m_engine->peerDescriptions());
 #endif
-    m_status->setText(QStringLiteral("%1 registered device(s) online · %2").arg(m_peers->count())
-        .arg(m_pause->isChecked() ? "paused" : "active"));
+    m_empty->setVisible(m_peers->count() == 0);
+    m_status->setText(I18n::text("%1 registered device(s) online · %2").arg(m_peers->count())
+        .arg(I18n::text(m_pause->isChecked() ? "paused" : "active")));
 #ifdef Q_OS_IOS
-    if (!m_engine) m_status->setText("Reception resumes when LocalClipboard is open.");
+    if (!m_engine) m_status->setText(I18n::text("Reception resumes when LocalClipboard is open."));
 #endif
 }
-void ClipboardSync::log(const QString &message) { statusBar()->showMessage(message, 15000); }
+void ClipboardSync::log(const QString &message) { m_log->setText(I18n::text(message)); }
 bool ClipboardSync::hasTray() const {
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     return false;
@@ -295,18 +327,17 @@ void ClipboardSync::closeEvent(QCloseEvent *event) {
 }
 
 void ClipboardSync::networkSettings() {
-    QDialog dialog(this); dialog.setWindowTitle("Network settings");
-    auto *form = new QFormLayout(&dialog);
+    QDialog dialog(this); Ui::title(&dialog, "Network settings");
+    const auto form = Ui::form(&dialog, "Network settings", "Enter a registered device's local IPv4 address. Both devices must be on the same Wi-Fi/LAN. Separate multiple addresses with spaces. Update them if your router changes them.");
     QStringList local;
     for (const auto &address : QNetworkInterface::allAddresses())
         if (address.protocol() == QAbstractSocket::IPv4Protocol && !address.isLoopback()) local.append(address.toString());
-    auto *help = new QLabel("This device: " + local.join(", ") + "\nEnter a registered device's local IPv4 address. "
-        "Both devices must be on the same Wi-Fi/LAN. The connection code is still required. "
-        "Separate multiple addresses with spaces. Update addresses here if your router changes them.", &dialog);
-    help->setWordWrap(true); form->addRow(help);
+    auto *help = Ui::label("", &dialog, "muted");
+    const auto update = [help, local] { help->setText(I18n::text("This device: %1").arg(local.join(", "))); };
+    update(); connect(&I18n::instance(), &I18n::languageChanged, &dialog, update); form.body->addWidget(help);
     auto *addresses = new QLineEdit(m_profile.peerAddresses.join(" "), &dialog);
-    addresses->setPlaceholderText("192.168.1.10"); form->addRow("Device IP addresses", addresses);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog); form->addRow(buttons);
+    addresses->setPlaceholderText("192.168.1.10"); Ui::field(form.body, "Device IP addresses", addresses); form.body->addStretch();
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog); form.footer->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
         QStringList peers;
@@ -314,13 +345,13 @@ void ClipboardSync::networkSettings() {
             const QHostAddress address(value);
             if (address.protocol() != QAbstractSocket::IPv4Protocol || address.isNull()
                 || address.isMulticast() || address == QHostAddress::Broadcast || peers.size() >= 32) {
-                QMessageBox::warning(&dialog, "Network", "Enter up to 32 valid IPv4 addresses."); return;
+                QMessageBox::warning(&dialog, I18n::text("Network"), I18n::text("Enter up to 32 valid IPv4 addresses.")); return;
             }
             if (!peers.contains(address.toString())) peers.append(address.toString());
         }
         Profile next = m_profile; next.peerAddresses = peers;
         QString error;
-        if (!next.save(&error)) { QMessageBox::warning(&dialog, "Network", error); return; }
+        if (!next.save(&error)) { QMessageBox::warning(&dialog, I18n::text("Network"), I18n::text(error)); return; }
         m_profile = next; startEngine(); dialog.accept();
     });
     dialog.exec();

@@ -1,4 +1,5 @@
 #include "ClipboardPayload.h"
+#include "I18n.h"
 #include <QBuffer>
 #include <QCryptographicHash>
 #include <QDir>
@@ -181,7 +182,7 @@ QString ClipboardPayload::hash(const QJsonObject &p) {
 }
 QString ClipboardPayload::description(const QJsonObject &p) {
     const QString kind = p.value("kind").toString();
-    if (kind == "files") return QStringLiteral("%1 file(s)").arg(p.value("files").toArray().size());
-    if (kind == "image") return QStringLiteral("image");
-    return QStringLiteral("text (%1 characters)").arg(p.value("text").toString().size());
+    if (kind == "files") return I18n::text("%1 file(s)").arg(p.value("files").toArray().size());
+    if (kind == "image") return I18n::text("image");
+    return I18n::text("text (%1 characters)").arg(p.value("text").toString().size());
 }

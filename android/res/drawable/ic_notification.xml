@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="640" android:viewportHeight="640">
+<group android:translateX="-192" android:translateY="-192">
+<path android:pathData="M328.0,282.0 H548.0 Q610.0,282.0 610.0,344.0 V652.0 Q610.0,714.0 548.0,714.0 H328.0 Q266.0,714.0 266.0,652.0 V344.0 Q266.0,282.0 328.0,282.0 Z" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="36" android:strokeAlpha="0.48" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+<path android:pathData="M438.0,328.0 H682.0 Q746.0,328.0 746.0,392.0 V712.0 Q746.0,776.0 682.0,776.0 H438.0 Q374.0,776.0 374.0,712.0 V392.0 Q374.0,328.0 438.0,328.0 Z" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="36" android:strokeAlpha="1" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+<path android:pathData="M504.0,274.0 H616.0 Q652.0,274.0 652.0,310.0 V342.0 Q652.0,378.0 616.0,378.0 H504.0 Q468.0,378.0 468.0,342.0 V310.0 Q468.0,274.0 504.0,274.0 Z" android:fillColor="#FFFFFFFF"/>
+<path android:pathData="M454 474H660M614 428L660 474L614 520M666 634H460M506 588L460 634L506 680" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="34" android:strokeAlpha="1" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+</group>
+</vector>

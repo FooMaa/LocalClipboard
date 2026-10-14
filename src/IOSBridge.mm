@@ -1,4 +1,6 @@
 #include "IOSBridge.h"
+#include "I18n.h"
+#include "Ui.h"
 #include "ClipboardPayload.h"
 #include "Profile.h"
 #include "PendingFiles.h"
@@ -175,8 +177,8 @@ void IOSBridge::pickFiles(QWidget *parent, FilesReady ready) {
         activePicker = nil;
         ready(files, QString::fromNSString(error ?: @""));
     };
-    UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"Send files / photos" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Photos and videos" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+    UIAlertController *menu = [UIAlertController alertControllerWithTitle:I18n::text("Send files / photos").toNSString() message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [menu addAction:[UIAlertAction actionWithTitle:I18n::text("Photos and videos").toNSString() style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
         PHPickerConfiguration *config = [[PHPickerConfiguration alloc] init];
         config.selectionLimit = ClipboardPayload::MaxFiles;
         config.filter = [PHPickerFilter anyFilterMatchingSubfilters:@[PHPickerFilter.imagesFilter, PHPickerFilter.videosFilter]];
@@ -184,13 +186,13 @@ void IOSBridge::pickFiles(QWidget *parent, FilesReady ready) {
         picker.delegate = activePicker;
         [controller presentViewController:picker animated:YES completion:nil];
     }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Files" style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
+    [menu addAction:[UIAlertAction actionWithTitle:I18n::text("Files").toNSString() style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
         UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeData] asCopy:YES];
         picker.allowsMultipleSelection = YES;
         picker.delegate = activePicker;
         [controller presentViewController:picker animated:YES completion:nil];
     }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *) { activePicker.completion(@[], nil); }]];
+    [menu addAction:[UIAlertAction actionWithTitle:I18n::text("Cancel").toNSString() style:UIAlertActionStyleCancel handler:^(UIAlertAction *) { activePicker.completion(@[], nil); }]];
     anchor(menu.popoverPresentationController, controller);
     [controller presentViewController:menu animated:YES completion:nil];
 }
@@ -207,9 +209,10 @@ void IOSBridge::copyFiles(const QList<QUrl> &urls) {
     [UIPasteboard.generalPasteboard setItems:items options:@{UIPasteboardOptionLocalOnly:@YES}];
 }
 void IOSBridge::openReceivedFiles(QWidget *parent) {
-    QDialog dialog(parent); dialog.setWindowTitle("Received / imported files");
-    auto *layout = new QVBoxLayout(&dialog);
-    auto *list = new QListWidget(&dialog); list->setSelectionMode(QAbstractItemView::ExtendedSelection); layout->addWidget(list);
+    QDialog dialog(parent); Ui::title(&dialog, "Received / imported files");
+    const auto form = Ui::form(&dialog, "Received / imported files", "Select files to share, save or send again.");
+    auto *layout = form.body;
+    auto *list = new QListWidget(&dialog); list->setSelectionMode(QAbstractItemView::ExtendedSelection); list->setMinimumHeight(160); list->setWordWrap(true); layout->addWidget(list);
     for (const QString &folder : {QStringLiteral("received"), QStringLiteral("imported")}) {
         QDirIterator it(QDir(Profile::dataDirectory()).filePath(folder), QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
         while (it.hasNext()) {
@@ -217,13 +220,13 @@ void IOSBridge::openReceivedFiles(QWidget *parent) {
             auto *item = new QListWidgetItem(folder + "/" + QFileInfo(path).fileName(), list); item->setData(Qt::UserRole, path);
         }
     }
-    auto *share = new QPushButton("Share / Save selected files…", &dialog); layout->addWidget(share);
+    auto *share = Ui::button("Share / Save…", &dialog); layout->addWidget(share);
     QObject::connect(share, &QPushButton::clicked, &dialog, [list] {
         QList<QUrl> urls;
         for (auto *item : list->selectedItems()) urls.append(QUrl::fromLocalFile(item->data(Qt::UserRole).toString()));
         if (!urls.isEmpty()) shareFiles(urls);
     });
-    auto *retry = new QPushButton("Send selected files again", &dialog); layout->addWidget(retry);
+    auto *retry = Ui::button("Send again", &dialog); layout->addWidget(retry);
     QObject::connect(retry, &QPushButton::clicked, &dialog, [&dialog, list] {
         QList<QUrl> urls;
         for (auto *item : list->selectedItems()) urls.append(QUrl::fromLocalFile(item->data(Qt::UserRole).toString()));
@@ -231,17 +234,17 @@ void IOSBridge::openReceivedFiles(QWidget *parent) {
         IOSBridge::importFiles(urls, [&dialog](const QList<QUrl> &copies, const QString &error) {
             QString message = error;
             if (message.isEmpty() && IOSBridge::queueFiles(Profile::load(), copies, &message)) dialog.accept();
-            else QMessageBox::warning(&dialog, "Files", message);
+            else QMessageBox::warning(&dialog, I18n::text("Files"), I18n::text(message));
         });
     });
-    auto *remove = new QPushButton("Delete selected local copies", &dialog); layout->addWidget(remove);
+    auto *remove = Ui::button("Delete local copies", &dialog); layout->addWidget(remove);
     QObject::connect(remove, &QPushButton::clicked, &dialog, [&dialog, list] {
-        if (list->selectedItems().isEmpty() || QMessageBox::question(&dialog, "Delete files", "Delete the selected copies stored in LocalClipboard?") != QMessageBox::Yes) return;
+        if (list->selectedItems().isEmpty() || QMessageBox::question(&dialog, I18n::text("Delete files"), I18n::text("Delete the selected copies stored in LocalClipboard?")) != QMessageBox::Yes) return;
         for (auto *item : list->selectedItems()) {
             if (QFile::remove(item->data(Qt::UserRole).toString())) delete item;
         }
     });
-    auto *close = new QDialogButtonBox(QDialogButtonBox::Close, &dialog); layout->addWidget(close);
+    auto *close = new QDialogButtonBox(QDialogButtonBox::Close, &dialog); form.footer->addWidget(close);
     QObject::connect(close, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     dialog.exec();
 }

@@ -7,11 +7,11 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$ROOT/dist" "$stage/installer/Source"
 cp "$ROOT/CMakeLists.txt" "$stage/installer/Source/"
-for directory in src cmake ios third_party scripts; do
+for directory in src cmake ios third_party scripts packaging assets; do
     cp -R "$ROOT/$directory" "$stage/installer/Source/"
 done
-cp "$ROOT/packaging/ios/install.sh" "$ROOT/packaging/ios/README.md" "$stage/installer/"
-chmod +x "$stage/installer/install.sh"
+cp "$ROOT/packaging/ios/install.sh" "$ROOT/packaging/common/language.sh" "$ROOT/packaging/ios/README.md" "$stage/installer/"
+chmod +x "$stage/installer/"*.sh
 # Create a fresh archive so removed source files cannot survive a later build.
 (cd "$stage/installer" && zip -qr "$stage/LocalClipboard-ios-installer.zip" .)
 mv "$stage/LocalClipboard-ios-installer.zip" "$ROOT/dist/LocalClipboard-ios-installer.zip"

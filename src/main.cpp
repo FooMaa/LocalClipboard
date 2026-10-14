@@ -2,9 +2,12 @@
 #include "ClipboardSync.h"
 #include "Profile.h"
 #include "Registration.h"
+#include "I18n.h"
+#include "Ui.h"
+#include "Uninstall.h"
 #include <QApplication>
-#include <QCryptographicHash>
 #include <QDir>
+#include <QIcon>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QLockFile>
@@ -46,14 +49,14 @@ namespace {
 void identity() {
     QCoreApplication::setApplicationName("LocalClipboard");
     QCoreApplication::setOrganizationName("LocalClipboard");
-    QCoreApplication::setApplicationVersion("2.0.0");
+    QCoreApplication::setApplicationVersion(LOCALCLIPBOARD_VERSION);
 }
 }
 int main(int argc, char *argv[]) {
 #ifdef Q_OS_ANDROID
     for (int i = 1; i < argc; ++i) {
         if (QByteArray(argv[i]) == "--service") {
-            QCoreApplication service(argc, argv); identity();
+            QCoreApplication service(argc, argv); identity(); I18n::initialize();
             return AndroidBridge::runService(service);
         }
     }
@@ -62,6 +65,25 @@ int main(int argc, char *argv[]) {
     IOSApplication app(argc, argv); identity();
 #else
     QApplication app(argc, argv); identity();
+#endif
+    const int languageIndex = app.arguments().indexOf("--language");
+    QString requestedLanguage = languageIndex >= 0 ? app.arguments().value(languageIndex + 1) : QString();
+#ifdef Q_OS_ANDROID
+    if (requestedLanguage.isEmpty()) requestedLanguage = AndroidBridge::installationLanguage();
+#endif
+    I18n::initialize(requestedLanguage);
+    Ui::initialize();
+    QIcon appIcon;
+    for (int size : {32, 64, 128, 256})
+        appIcon.addFile(QString(":/icons/localclipboard-%1.png").arg(size));
+    QApplication::setWindowIcon(appIcon);
+#ifdef Q_OS_ANDROID
+    AndroidBridge::setLanguage(I18n::language());
+    QObject::connect(&I18n::instance(), &I18n::languageChanged, &app, [] { AndroidBridge::setLanguage(I18n::language()); });
+#endif
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
+    if (app.arguments().contains("--quit")) return Uninstall::requestQuit() ? 0 : 1;
+    if (app.arguments().contains("--uninstall")) return Uninstall::run();
 #endif
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QApplication::setQuitOnLastWindowClosed(true);
@@ -73,8 +95,7 @@ int main(int argc, char *argv[]) {
     QDir().mkpath(Profile::dataDirectory());
     QLockFile lock(QDir(Profile::dataDirectory()).filePath("instance.lock"));
     lock.setStaleLockTime(0);
-    const QString ipcName = "localclipboard-" + QString::fromLatin1(QCryptographicHash::hash(
-        Profile::dataDirectory().toUtf8(), QCryptographicHash::Sha256).toHex().left(24));
+    const QString ipcName = Uninstall::ipcName();
     if (!lock.tryLock()) {
         if (!app.arguments().contains("--background")) {
             QLocalSocket socket; socket.connectToServer(ipcName);
@@ -97,24 +118,28 @@ int main(int argc, char *argv[]) {
     }
     QString error;
     if (!Autostart::setEnabled(profile.autostart, &error) && !app.arguments().contains("--background"))
-        QMessageBox::warning(nullptr, "Autostart", error);
+        QMessageBox::warning(nullptr, I18n::text("Autostart"), I18n::text(error));
     ClipboardSync window(profile);
 #ifdef Q_OS_IOS
     app.onFiles = [&window](const QList<QUrl> &urls) { window.importFiles(urls); };
-    app.onImportError = [&window](const QString &error) { QMessageBox::warning(&window, "Import", error); };
+    app.onImportError = [&window](const QString &error) { QMessageBox::warning(&window, I18n::text("Import"), I18n::text(error)); };
     if (!app.pendingFiles.isEmpty()) { window.importFiles(app.pendingFiles); app.pendingFiles.clear(); }
-    if (!app.importError.isEmpty()) QMessageBox::warning(&window, "Import", app.importError);
+    if (!app.importError.isEmpty()) QMessageBox::warning(&window, I18n::text("Import"), I18n::text(app.importError));
 #endif
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     QObject::connect(&ipc, &QLocalServer::newConnection, &window, [&] {
         while (ipc.hasPendingConnections()) {
             auto *socket = ipc.nextPendingConnection();
             QObject::connect(socket, &QLocalSocket::readyRead, &window, [&, socket] {
-                if (socket->readAll().startsWith("show")) window.showSettings();
+                // QLocalSocket is a stream: a command may arrive in fragments.
+                if (socket->bytesAvailable() < 4) return;
+                const QByteArray command = socket->read(4);
+                if (command == "quit") app.quit();
+                else if (command == "show") { I18n::initialize(); window.showSettings(); }
                 socket->disconnectFromServer();
             });
             QObject::connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
-            if (socket->bytesAvailable()) { window.showSettings(); socket->disconnectFromServer(); }
+            if (socket->bytesAvailable()) emit socket->readyRead();
         }
     });
 #endif

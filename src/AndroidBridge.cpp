@@ -1,5 +1,6 @@
 #include "AndroidBridge.h"
 #include "ClipboardPayload.h"
+#include "I18n.h"
 #include "SecureProtocol.h"
 #include "SyncEngine.h"
 #include <QCoreApplication>
@@ -32,6 +33,15 @@ bool write(const QString &name, const QJsonObject &obj, QString *error = nullptr
     return true;
 }
 void notify() { QJniObject::callStaticMethod<void>("org/localclipboard/ClipboardService", "received", "()V"); }
+}
+void AndroidBridge::setLanguage(const QString &language) {
+    const auto context = QNativeInterface::QAndroidApplication::context();
+    const auto value = QJniObject::fromString(language);
+    QJniObject::callStaticMethod<void>(Bridge, "setLanguage", "(Landroid/content/Context;Ljava/lang/String;)V", context.object(), value.object<jstring>());
+}
+QString AndroidBridge::installationLanguage() {
+    const auto context = QNativeInterface::QAndroidApplication::context();
+    return QJniObject::callStaticObjectMethod(Bridge, "installationLanguage", "(Landroid/content/Context;)Ljava/lang/String;", context.object()).toString();
 }
 bool AndroidBridge::setEnabled(bool enabled) {
     auto context = QNativeInterface::QAndroidApplication::context();
@@ -96,7 +106,7 @@ void AndroidBridge::copyFiles(const QList<QUrl> &urls) {
 }
 void AndroidBridge::openReceivedFiles(QWidget *parent) {
     // Android has no portable folder-opening intent. The file chooser lists the private received files.
-    const QString chosen = QFileDialog::getOpenFileName(parent, "Received files", path("received"));
+    const QString chosen = QFileDialog::getOpenFileName(parent, I18n::text("Received files"), path("received"));
     if (chosen.isEmpty()) return;
     auto context = QNativeInterface::QAndroidApplication::context();
     const QJniObject file = QJniObject::fromString(chosen);

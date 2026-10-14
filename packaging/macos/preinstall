@@ -1,0 +1,17 @@
+#!/bin/bash
+# Close the logged-in user's installed receiver before replacing its Qt frameworks.
+# Another user's session and copies outside /Applications are left alone.
+console_user=$(/usr/bin/stat -f '%Su' /dev/console)
+case "$console_user" in root|loginwindow|_mbsetupuser|'') exit 0 ;; esac
+console_uid=$(/usr/bin/id -u "$console_user") || exit 0
+/bin/launchctl bootout "gui/$console_uid/org.localclipboard" 2>/dev/null || true
+while read -r pid owner executable; do
+    if [[ $owner == "$console_uid" && $executable == /Applications/LocalClipboard.app/Contents/MacOS/LocalClipboard ]]; then
+        /bin/kill -TERM "$pid" 2>/dev/null || true
+        for ((attempt=0; attempt<30; attempt++)); do
+            /bin/kill -0 "$pid" 2>/dev/null || break
+            /bin/sleep 0.1
+        done
+    fi
+done < <(/bin/ps -axo pid=,uid=,comm=)
+exit 0

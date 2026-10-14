@@ -13,6 +13,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application android:name="org.qtproject.qt.android.bindings.QtApplication"
+        android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
         android:label="LocalClipboard" android:hardwareAccelerated="true"
         android:allowBackup="false" android:usesCleartextTraffic="false">
         <activity android:name="org.localclipboard.ClipboardActivity" android:exported="true"

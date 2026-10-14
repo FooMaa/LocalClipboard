@@ -88,6 +88,42 @@ There is no transfer history, resumable streaming or delivery acknowledgement ye
 Desktop copies made while all registered peers are offline are not sent later;
 Android's latest explicit outgoing item waits for a peer for up to ten minutes.
 
+## Language and removal
+
+Choose **Русский / English** in the registration wizard. You can change it later
+at the top of the app without changing your profile. `--language ru` or
+`--language en` selects the initial language for desktop / iOS launches.
+The Windows installer has a language dialog; shell / Android installers prompt
+for a language and also accept `LC_LANGUAGE=ru` or `LC_LANGUAGE=en`.
+The macOS PKG welcome page follows the macOS language; its registration wizard
+opens after installation and lets you explicitly choose either language.
+
+Run the same installer again to manage an existing installation:
+
+- **macOS:** open the same `.pkg`. On the action page select **Remove LocalClipboard**
+  to uninstall instead of reinstalling. The app and current user's autostart are
+  removed; profile and received files are kept. No separate removal app is installed.
+- **Windows:** the installer detects the existing installation and offers
+  **Reinstall** or **Uninstall**. Installed apps removal also remains available.
+- **Debian/Ubuntu:** the shell installer detects the installed DEB and offers
+  reinstall, removal or cancellation; sudo authorizes package changes.
+- **Android:** run `install.sh` / `install.ps1` again with the same selected phone.
+  When the app is installed, choose reinstall or uninstall. Removal requires `DELETE`.
+- **iOS:** run `install.sh` with `IOS_DEVICE_ID` and your actual `IOS_BUNDLE_ID`.
+  The installer queries that device and offers reinstall or removal if installed.
+  Removal requires `DELETE` and works without the Qt kit or a new build.
+  Without a device ID the script opens the Xcode installation flow.
+
+Desktop installer removal preserves personal data. Windows removal and the app's
+**Uninstall…** dialog also offer **Erase my local data**. On Android and iOS,
+removing the app deletes its local data. Other devices keep their profiles.
+macOS installer receipts may remain; they contain package metadata, not clipboard
+content. Linux/Windows native package removal outside our wizard keeps user data.
+
+Forms scroll when needed, wrap explanatory text, and keep their action buttons
+outside the scrolling content. Closing the desktop app window still leaves
+synchronization running; use **Quit LocalClipboard** to stop it.
+
 ## Build: five packages and five installers
 
 CMake 3.21.1+, a C++17 compiler, Qt 6 Core/Network/Widgets/Test and native packaging
@@ -108,7 +144,7 @@ corresponding host. `-n` builds only the app. With a configured CMake build, use
 | Platform | Application package | Installer |
 | --- | --- | --- |
 | Linux (Debian/Ubuntu) | `LocalClipboard-linux-amd64.deb` | `LocalClipboard-linux-amd64-installer.sh` |
-| macOS | `LocalClipboard-macos-package.zip` (deployed `.app`) | `LocalClipboard-macos-installer.pkg` |
+| macOS | `LocalClipboard-macos-package.zip` (app bundle) | `LocalClipboard-macos-installer.pkg` |
 | Windows | `LocalClipboard-windows-package.zip` | `LocalClipboard-windows-installer.exe` (NSIS) |
 | Android | `LocalClipboard-android-package.apk` | `LocalClipboard-android-installer.zip` (APK + adb installation/registration launch scripts) |
 | iOS/iPadOS | `LocalClipboard-ios-package.zip` (arm64 device `.app`) | `LocalClipboard-ios-installer.zip` (source + Xcode build/sign/install script) |
@@ -165,3 +201,8 @@ and [connected-device service documentation](https://developer.android.com/devel
 Apple documents [background suspension](https://developer.apple.com/documentation/uikit/extending-your-app-s-background-execution-time),
 [paste permissions](https://developer.apple.com/documentation/uikit/uipastecontrol),
 and the [restricted broadcast/multicast entitlement](https://developer.apple.com/news/?id=0oi77447).
+
+The branded app icon is included on all five platforms, in the desktop tray and
+Android background-service notification. Assets ship with the source; regular
+builds need no icon generation step. See [icon assets](assets/icons/README.md)
+for regeneration after changing the SVG.
