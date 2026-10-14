@@ -107,7 +107,8 @@ if(BUILD_TESTING AND NOT ANDROID AND NOT IOS)
     target_link_libraries(app_tests PRIVATE clipboard_core Qt6::Test)
     add_test(NAME clipboard_core COMMAND clipboard_tests)
     add_test(NAME background_window COMMAND app_tests)
-    set_tests_properties(clipboard_core background_window PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    set_tests_properties(clipboard_core background_window PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_FORCE_STDERR_LOGGING=1")
 endif()
 if(IOS)
     add_custom_target(installers

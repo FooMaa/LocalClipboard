@@ -30,6 +30,13 @@ jobs:
         run: |
           cmake --build build_desktop --config Release --parallel 4 --target clipboard_tests app_tests
           ctest --test-dir build_desktop -C Release --output-on-failure
+      - name: Save test failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ runner.os }}
+          if-no-files-found: ignore
+          path: build_desktop/Testing/Temporary/*.log
       - name: Test installer arguments and removal guards
         if: runner.os != 'Windows'
         run: python3 tests/PackagingTests.py

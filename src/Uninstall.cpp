@@ -37,8 +37,9 @@ QString Uninstall::ipcName() {
 bool Uninstall::requestQuit() {
     QLocalSocket socket; socket.connectToServer(ipcName());
     if (!socket.waitForConnected(1000)) return true;
-    socket.write("quit");
-    return socket.waitForBytesWritten(1000);
+    if (socket.write("quit") != 4) return false;
+    // A completed write is successful even when there is nothing left to wait for.
+    return socket.bytesToWrite() == 0 || socket.waitForBytesWritten(1000);
 }
 void Uninstall::launch(QWidget *parent) {
     if (!QProcess::startDetached(QCoreApplication::applicationFilePath(), {"--uninstall"}))

@@ -14,7 +14,9 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QPushButton>
+#include <QProcess>
 #include <QScrollArea>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QTest>
@@ -95,10 +97,21 @@ private slots:
     }
     void quitCommandTargetsThisUsersInstance() {
         QLocalServer::removeServer(Uninstall::ipcName());
-        QLocalServer server; server.setSocketOptions(QLocalServer::UserAccessOption); QVERIFY(server.listen(Uninstall::ipcName()));
-        QVERIFY(Uninstall::requestQuit()); QTRY_VERIFY(server.hasPendingConnections());
+        QLocalServer server; server.setSocketOptions(QLocalServer::UserAccessOption);
+        QVERIFY2(server.listen(Uninstall::ipcName()), qPrintable(server.errorString()));
+        // Windows named pipes have no write buffer. A blocking client in this
+        // thread prevents the server from accepting/reading until the write times out.
+        // Production sends this command from another process; exercise that here too.
+        QProcess sender;
+        sender.start(QCoreApplication::applicationFilePath(),
+                     {"--test-request-quit", QCoreApplication::applicationName()});
+        QVERIFY2(sender.waitForStarted(), qPrintable(sender.errorString()));
+        QTRY_VERIFY(server.hasPendingConnections());
         QScopedPointer<QLocalSocket> socket(server.nextPendingConnection());
-        QTRY_VERIFY(socket->bytesAvailable() > 0); QCOMPARE(socket->readAll(), QByteArray("quit"));
+        QTRY_VERIFY(socket->bytesAvailable() >= 4); QCOMPARE(socket->readAll(), QByteArray("quit"));
+        QTRY_COMPARE(sender.state(), QProcess::NotRunning);
+        QCOMPARE(sender.exitStatus(), QProcess::NormalExit);
+        QVERIFY2(sender.exitCode() == 0, sender.readAllStandardError().constData());
     }
     void uninstallKeepsDataUnlessSelected() {
 #ifdef Q_OS_MACOS
@@ -137,5 +150,19 @@ private slots:
         QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("copy again"));
     }
 };
-QTEST_MAIN(AppTests)
+int main(int argc, char **argv) {
+    QApplication app(argc, argv);
+    QStandardPaths::setTestModeEnabled(true);
+    QCoreApplication::setOrganizationName("LocalClipboardTests");
+    const int helper = app.arguments().indexOf("--test-request-quit");
+    if (helper >= 0) {
+        const QString instance = app.arguments().value(helper + 1);
+        if (instance.isEmpty()) return 2;
+        QCoreApplication::setApplicationName(instance);
+        return Uninstall::requestQuit() ? 0 : 1;
+    }
+    QCoreApplication::setApplicationName("app-tests-" + QUuid::createUuid().toString(QUuid::WithoutBraces));
+    AppTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
 #include "AppTests.moc"
