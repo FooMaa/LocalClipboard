@@ -60,6 +60,8 @@ Install **full Xcode**, its iOS SDK, and matching Qt iOS / macOS host kits. The
 Homebrew desktop Qt package and Xcode Command Line Tools cannot build for iPhone.
 Use `xcode-select -p` and `xcrun --sdk iphoneos --show-sdk-path` to verify Xcode setup.
 The supported deployment target here is iOS 16+; CI uses Qt 6.8.3 and the runner's Xcode.
+The Qt iOS kit must include its native AVFoundation multimedia plugin. CMake selects
+only that media backend for QR camera capture, so FFmpeg libraries are not required.
 
 ```sh
 export QT_IOS_ROOT="$HOME/Qt/6.8.3/ios"
@@ -112,6 +114,8 @@ Android использует общее приложение C++/Qt Widgets из
 ### iOS / iPadOS
 
 Установите **полный Xcode**, его iOS SDK и совпадающие версии комплектов Qt для iOS и macOS с инструментами сборки. Qt для компьютера из Homebrew и Xcode Command Line Tools не позволяют собирать приложение для iPhone. Проверьте настройку Xcode командами `xcode-select -p` и `xcrun --sdk iphoneos --show-sdk-path`. Поддерживается iOS 16 и новее; CI использует Qt 6.8.3 и Xcode машины сборки.
+
+Комплект Qt для iOS должен содержать нативный мультимедийный плагин AVFoundation. CMake выбирает только этот модуль для сканирования QR камерой, поэтому библиотеки FFmpeg не требуются.
 
 ```sh
 export QT_IOS_ROOT="$HOME/Qt/6.8.3/ios"

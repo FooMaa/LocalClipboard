@@ -54,6 +54,12 @@ qt_add_resources(LocalClipboard third_party_licenses PREFIX "/licenses" BASE thi
     third_party/monocypher/LICENCE.md third_party/zxing/LICENSE third_party/zxing/NOTICES.txt)
 target_compile_definitions(LocalClipboard PRIVATE LOCALCLIPBOARD_VERSION="${PROJECT_VERSION}")
 if(IOS)
+    # Static iOS Qt kits also auto-import FFmpeg, whose codecs may be absent.
+    # QR capture uses Apple's AVFoundation backend; keep other plugin types enabled.
+    if(NOT TARGET Qt6::QDarwinMediaPlugin)
+        message(FATAL_ERROR "The Qt iOS kit must include the native AVFoundation multimedia plugin")
+    endif()
+    qt_import_plugins(LocalClipboard INCLUDE_BY_TYPE multimedia Qt6::QDarwinMediaPlugin)
     enable_language(OBJCXX)
     target_sources(LocalClipboard PRIVATE ios/Assets.xcassets)
     set_source_files_properties(ios/Assets.xcassets PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
