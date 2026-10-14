@@ -51,6 +51,7 @@ void SyncEngine::announce() {
     if (!m_profile.registered() || !m_server.isListening()) return;
     if (m_discoveryPort == 0) { emit peersChanged(); return; }
     const QByteArray bytes = SecureProtocol::announcement(m_profile, port());
+#ifndef Q_OS_IOS
     m_udp.writeDatagram(bytes, QHostAddress::Broadcast, m_discoveryPort);
     // Directed broadcasts reach each active LAN when VPNs or multiple adapters are present.
     for (const auto &interface : QNetworkInterface::allInterfaces()) {
@@ -60,19 +61,33 @@ void SyncEngine::announce() {
                 m_udp.writeDatagram(bytes, entry.broadcast(), m_discoveryPort);
         }
     }
+#endif
+    for (const QString &address : m_profile.peerAddresses) contact(QHostAddress(address), m_discoveryPort);
+    // A phone can initiate contact without receiving any broadcast traffic.
+    for (const auto &peer : m_peers) contact(peer.address, m_discoveryPort);
     emit peersChanged();
+}
+void SyncEngine::contact(const QHostAddress &address, quint16 discoveryPort) {
+    if (!m_profile.registered() || !m_server.isListening() || !discoveryPort
+        || address.protocol() != QAbstractSocket::IPv4Protocol || address.isNull()
+        || address.isMulticast() || address == QHostAddress::Broadcast) return;
+    m_udp.writeDatagram(SecureProtocol::announcement(m_profile, port()), address, discoveryPort);
 }
 void SyncEngine::discover() {
     while (m_udp.hasPendingDatagrams()) {
         if (m_udp.pendingDatagramSize() > 2048) { m_udp.readDatagram(nullptr, 0); continue; }
         QByteArray bytes(int(m_udp.pendingDatagramSize()), Qt::Uninitialized);
         QHostAddress address;
-        if (m_udp.readDatagram(bytes.data(), bytes.size(), &address) < 0) continue;
+        quint16 sourcePort = 0;
+        if (m_udp.readDatagram(bytes.data(), bytes.size(), &address, &sourcePort) < 0) continue;
         QJsonObject obj;
         if (!SecureProtocol::readAnnouncement(m_profile, bytes, &obj)) continue;
         const QString id = obj.value("id").toString();
         if (id == m_profile.deviceId || (m_peers.size() >= 64 && !m_peers.contains(id))) continue;
+        const bool isNew = !m_peers.contains(id) || m_peers.value(id).address != address;
         m_peers.insert(id, Peer{id, obj.value("name").toString(), address, quint16(obj.value("port").toInt()), m_clock.elapsed()});
+        // Reply once to a newly authenticated peer; never create a reply loop.
+        if (isNew) contact(address, sourcePort);
         emit peersChanged();
     }
 }
@@ -87,12 +102,13 @@ bool SyncEngine::send(const QJsonObject &payload) {
     if (m_profile.paused || !ClipboardPayload::validate(payload, &error)) return false;
     const QByteArray plain = QJsonDocument(payload).toJson(QJsonDocument::Compact);
     if (plain.size() > SecureProtocol::MaxWireBytes - 40 || m_peers.isEmpty()) return false;
-    for (const auto &peer : m_peers) sendTo(peer, plain);
-    emit message("Sending " + ClipboardPayload::description(payload));
-    return true;
+    bool queued = false;
+    for (const auto &peer : m_peers) queued = sendTo(peer, plain) || queued;
+    if (queued) emit message("Sending " + ClipboardPayload::description(payload));
+    return queued;
 }
-void SyncEngine::sendTo(const Peer &peer, const QByteArray &plain) {
-    if (m_connections >= 8) { emit message("Transfer queue is busy; try again."); return; }
+bool SyncEngine::sendTo(const Peer &peer, const QByteArray &plain) {
+    if (m_connections >= 8) { emit message("Transfer queue is busy; try again."); return false; }
     auto *socket = new QTcpSocket(this);
     ++m_connections;
     connect(socket, &QObject::destroyed, this, [this] { --m_connections; });
@@ -120,6 +136,7 @@ void SyncEngine::sendTo(const Peer &peer, const QByteArray &plain) {
         socket->disconnectFromHost();
     });
     socket->connectToHost(peer.address, peer.port);
+    return true;
 }
 void SyncEngine::accept() {
     while (m_server.hasPendingConnections()) {

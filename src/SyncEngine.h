@@ -18,6 +18,7 @@ public:
     bool send(const QJsonObject &payload);
     void setPaused(bool paused) { m_profile.paused = paused; }
     void announce();
+    void contact(const QHostAddress &address, quint16 discoveryPort = 45871);
     quint16 port() const { return m_server.serverPort(); }
     quint16 discoveryPort() const { return m_udp.localPort(); }
     QStringList peerDescriptions() const;
@@ -29,7 +30,7 @@ private:
     struct Peer { QString id, name; QHostAddress address; quint16 port; qint64 seen; };
     void discover();
     void accept();
-    void sendTo(const Peer &peer, const QByteArray &plain);
+    bool sendTo(const Peer &peer, const QByteArray &plain);
     Profile m_profile;
     quint16 m_discoveryPort;
     QUdpSocket m_udp;

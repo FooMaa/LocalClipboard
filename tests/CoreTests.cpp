@@ -1,5 +1,6 @@
 #include "ClipboardPayload.h"
 #include "Profile.h"
+#include "PendingFiles.h"
 #include "SecureProtocol.h"
 #include "SyncEngine.h"
 #include <QBuffer>
@@ -38,10 +39,12 @@ private slots:
         QVERIFY(joined.join(p.invitation()));
         QCOMPARE(joined.groupId(), p.groupId());
         QVERIFY(joined.deviceId != p.deviceId);
+        p.peerAddresses = {"192.168.1.10", "10.0.0.2"};
         QVERIFY(!joined.join("LC2.password"));
         QVERIFY(p.save(nullptr, directory.path()));
         const Profile restored = Profile::load(directory.path());
         QCOMPARE(restored.deviceId, p.deviceId); QCOMPARE(restored.key, p.key);
+        QCOMPARE(restored.peerAddresses, p.peerAddresses);
         p.paused = true; QVERIFY(p.save(nullptr, directory.path())); QVERIFY(Profile::load(directory.path()).paused);
     }
     void authenticatedDiscovery() {
@@ -140,6 +143,53 @@ private slots:
         QVERIFY(sender.send(text("cancel pending send")));
         sender.setPaused(true);
         QTest::qWait(100); QCOMPARE(delivered.size(), 0);
+    }
+    void directDiscoveryWithoutBroadcasts() {
+        Profile phone = profile(), desktop = profile(), stranger = profile(); desktop.key = phone.key;
+        SyncEngine mobile(phone, nullptr, 0, 0), computer(desktop, nullptr, 0, 0), other(stranger, nullptr, 0, 0);
+        QVERIFY(mobile.port() && computer.port() && other.port());
+        // Only the phone knows the desktop's discovery endpoint. Its authenticated
+        // unicast announcement must introduce both directions without a broadcast.
+        mobile.contact(QHostAddress::LocalHost, computer.discoveryPort());
+        QTRY_COMPARE(mobile.peerDescriptions().size(), 1);
+        QTRY_COMPARE(computer.peerDescriptions().size(), 1);
+        other.contact(QHostAddress::LocalHost, computer.discoveryPort());
+        QTest::qWait(50);
+        QCOMPARE(other.peerDescriptions().size(), 0);
+        QCOMPARE(computer.peerDescriptions().size(), 1);
+        QSignalSpy onPhone(&mobile, &SyncEngine::received), onComputer(&computer, &SyncEngine::received);
+        QVERIFY(computer.send(text("to iPhone"))); QTRY_COMPARE(onPhone.size(), 1);
+        QVERIFY(mobile.send(text("from iPhone"))); QTRY_COMPARE(onComputer.size(), 1);
+        // Announcements cease after the initial reciprocal exchange (no echo loop).
+        QSignalSpy changes(&computer, &SyncEngine::peersChanged);
+        QTest::qWait(100); QCOMPARE(changes.size(), 0);
+    }
+    void importedQueueIsPrivateAndBounded() {
+        QTemporaryDir directory;
+        const Profile person = profile(), other = profile();
+        QVERIFY(QDir(directory.path()).mkpath("imported/batch"));
+        QFile file(directory.filePath("imported/batch/photo.jpg"));
+        QVERIFY(file.open(QIODevice::WriteOnly)); QCOMPARE(file.write("photo"), qint64(5)); file.close();
+        const QUrl photo = QUrl::fromLocalFile(file.fileName());
+        QString error;
+        QVERIFY(PendingFiles::append(person, {photo}, &error, directory.path()));
+        QCOMPARE(PendingFiles::load(person, directory.path()), QList<QUrl>{photo});
+        QVERIFY(PendingFiles::load(other, directory.path()).isEmpty());
+        QVERIFY(PendingFiles::append(person, {photo}, &error, directory.path()));
+        QCOMPARE(PendingFiles::load(person, directory.path()).size(), 1);
+        QFile secret(directory.filePath("profile.json")); QVERIFY(secret.open(QIODevice::WriteOnly)); secret.write("secret"); secret.close();
+        QVERIFY(!PendingFiles::append(person, {QUrl::fromLocalFile(secret.fileName())}, &error, directory.path()));
+        // Failed appends must preserve the previous queue.
+        QCOMPARE(PendingFiles::load(person, directory.path()).size(), 1);
+        QFile huge(directory.filePath("imported/batch/huge.bin")); QVERIFY(huge.open(QIODevice::WriteOnly));
+        QVERIFY(huge.resize(ClipboardPayload::MaxContentBytes + 1)); huge.close();
+        QVERIFY(!PendingFiles::append(person, {QUrl::fromLocalFile(huge.fileName())}, &error, directory.path()));
+        PendingFiles::clear(person, directory.path());
+        QVERIFY(PendingFiles::load(person, directory.path()).isEmpty());
+        QVERIFY(file.exists()); // Starting a transfer never destroys the retry copy.
+        QFile malicious(directory.filePath("outgoing-" + person.groupId() + ".json"));
+        QVERIFY(malicious.open(QIODevice::WriteOnly)); malicious.write("[\"imported/../profile.json\"]"); malicious.close();
+        QVERIFY(PendingFiles::load(person, directory.path()).isEmpty());
     }
     void rejectWrongKeyAndReplayedFrame() {
         Profile recipient = profile(), member = profile(), stranger = profile(); member.key = recipient.key;

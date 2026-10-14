@@ -1,6 +1,7 @@
 #pragma once
 #include <QByteArray>
 #include <QString>
+#include <QStringList>
 
 struct Profile {
     QString deviceId;
@@ -9,6 +10,7 @@ struct Profile {
     QByteArray key;
     bool autostart = true;
     bool paused = false;
+    QStringList peerAddresses;
 
     bool registered() const;
     QString groupId() const;

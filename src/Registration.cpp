@@ -25,8 +25,18 @@ bool registerDevice(Profile *profile, QWidget *parent) {
     code->setPlaceholderText("LC2.…"); code->setMaxLength(68); code->setEnabled(false);
     auto *startup = new QCheckBox("Start in background when I log in / restart the device", &dialog);
     startup->setChecked(true);
+#ifdef Q_OS_IOS
+    startup->setChecked(false);
+    startup->hide();
+#endif
     layout->addRow("Device name", device); layout->addRow("Your name", owner);
     layout->addRow("Profile", mode); layout->addRow("Connection code", code); layout->addRow(startup);
+#ifdef Q_OS_IOS
+    startup->hide();
+    auto *iosNote = new QLabel("Keep LocalClipboard open to receive. Send with the clipboard button, Files / Photos, or Open in LocalClipboard. "
+        "Add a computer's local IP in Network settings.", &dialog);
+    iosNote->setWordWrap(true); layout->addRow(iosNote);
+#endif
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     layout->addRow(buttons);
     QObject::connect(mode, &QComboBox::currentIndexChanged, code, [code](int index) { code->setEnabled(index == 1); });

@@ -133,7 +133,7 @@ QMimeData *ClipboardPayload::materialize(const QJsonObject &p, const QString &di
         if (!p.value("html").toString().isEmpty()) mime->setHtml(p.value("html").toString());
         return mime;
     }
-#ifndef Q_OS_ANDROID
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     if (kind == "image") {
         const QImage image = QImage::fromData(decode(p.value("png").toString()), "PNG");
         if (image.isNull()) { delete mime; fail(error, "Cannot decode PNG."); return nullptr; }

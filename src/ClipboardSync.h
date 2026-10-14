@@ -2,6 +2,7 @@
 #include "Profile.h"
 #include <QJsonObject>
 #include <QMainWindow>
+#include <QUrl>
 class QCheckBox;
 class QCloseEvent;
 class QLabel;
@@ -16,6 +17,7 @@ public:
     bool hasTray() const;
 public slots:
     void showSettings();
+    void importFiles(const QList<QUrl> &urls);
 protected:
     void closeEvent(QCloseEvent *event) override;
 private:
@@ -25,6 +27,7 @@ private:
     void refresh();
     void log(const QString &message);
     void startEngine();
+    void networkSettings();
     Profile m_profile;
     SyncEngine *m_engine = nullptr;
     QListWidget *m_peers = nullptr;

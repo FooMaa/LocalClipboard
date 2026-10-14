@@ -4,7 +4,7 @@ Desktop Linux (Debian/Ubuntu): `./dependencies/linux.sh`.
 Desktop macOS: install Homebrew and Xcode Command Line Tools, then
 `./dependencies/macos.sh`. These scripts install packages and may require sudo.
 
-Other Linux distributions: C++17 compiler, CMake >=3.21, Ninja (optional),
+Other Linux distributions: C++17 compiler, CMake >=3.21.1, Ninja (optional),
 Qt 6 Core, Network, Widgets, Test and platform plugins. Windows: MSVC, Qt 6 desktop
 and NSIS (e.g. `choco install nsis`). Linux packaging uses `dpkg-dev`; macOS uses
 `macdeployqt`, Python 3, `pkgbuild` and `productbuild` from the development tools.
@@ -50,3 +50,20 @@ latest item. Android 10+ restricts reading the clipboard to the focused app, so 
 app. Release APKs require signing; CI builds an installable debug APK and an adb
 installer ZIP. Device testing is required to verify clipboard, LAN, reboot and
 manufacturer battery-management behavior on your Android version.
+
+## iOS / iPadOS
+
+Install **full Xcode**, its iOS SDK, and matching Qt iOS / macOS host kits. The
+Homebrew desktop Qt package and Xcode Command Line Tools cannot build for iPhone.
+Use `xcode-select -p` and `xcrun --sdk iphoneos --show-sdk-path` to verify Xcode setup.
+The supported deployment target here is iOS 16+; CI uses Qt 6.8.3 and the runner's Xcode.
+
+```sh
+export QT_IOS_ROOT="$HOME/Qt/6.8.3/ios"
+export QT_HOST_PATH="$HOME/Qt/6.8.3/macos"
+./scripts/build -t ios
+```
+
+Then open `build_ios/LocalClipboard.xcodeproj`, select your Team / unique Bundle ID,
+and Run on your phone. No App Groups or restricted multicast permission are needed.
+See [installation and device verification](../packaging/ios/README.md).

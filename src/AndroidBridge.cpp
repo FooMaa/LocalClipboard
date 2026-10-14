@@ -122,7 +122,7 @@ int AndroidBridge::runService(QCoreApplication &app) {
     QObject::connect(&poll, &QTimer::timeout, &app, [&] {
         const Profile latest = Profile::load();
         if (!latest.registered()) return;
-        if (latest.key != profile.key || latest.deviceName != profile.deviceName) {
+        if (latest.key != profile.key || latest.deviceName != profile.deviceName || latest.peerAddresses != profile.peerAddresses) {
             profile = latest; start();
         } else { profile = latest; engine->setPaused(profile.paused); }
         const QJsonObject outgoing = read("outbox.json");

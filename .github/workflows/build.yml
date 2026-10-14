@@ -1,4 +1,4 @@
-name: Build four packages and four installers
+name: Build five packages and five installers
 on: [push, pull_request, workflow_dispatch]
 jobs:
   desktop:
@@ -67,8 +67,29 @@ jobs:
           name: LocalClipboard-Android
           if-no-files-found: error
           path: dist/LocalClipboard-android-*
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          target: ios
+          arch: ios
+          cache: true
+      - name: Build iPhone application and Xcode installer
+        shell: bash
+        run: |
+          export QT_IOS_ROOT="$QT_ROOT_DIR"
+          : "${QT_HOST_PATH:?Qt installer did not provide the matching macOS host kit}"
+          ./scripts/build -t ios
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalClipboard-iOS
+          if-no-files-found: error
+          path: dist/LocalClipboard-ios-*
   distribution:
-    needs: [desktop, android]
+    needs: [desktop, android, ios]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@v4
@@ -76,10 +97,10 @@ jobs:
           pattern: LocalClipboard-*
           path: dist
           merge-multiple: true
-      - name: Verify all eight outputs
+      - name: Verify all ten outputs
         shell: bash
         run: |
-          test "$(find dist -type f | wc -l)" -eq 8
+          test "$(find dist -type f | wc -l)" -eq 10
           test -f dist/LocalClipboard-linux-amd64.deb
           test -f dist/LocalClipboard-linux-amd64-installer.sh
           test -f dist/LocalClipboard-macos-package.zip
@@ -88,6 +109,8 @@ jobs:
           test -f dist/LocalClipboard-windows-installer.exe
           test -f dist/LocalClipboard-android-package.apk
           test -f dist/LocalClipboard-android-installer.zip
+          test -f dist/LocalClipboard-ios-package.zip
+          test -f dist/LocalClipboard-ios-installer.zip
           (cd dist && sha256sum LocalClipboard-* > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:

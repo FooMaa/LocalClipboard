@@ -1,6 +1,6 @@
 # LocalClipboard
 
-Encrypted LAN clipboard synchronization for **macOS, Linux, Windows and Android**.
+Encrypted LAN clipboard synchronization for **macOS, Linux, Windows, Android and iOS/iPadOS**.
 Text, formatted text, images, photos and files go directly between your own devices;
 there is no cloud, email account or central server.
 
@@ -24,7 +24,7 @@ remaining devices. Individual device revocation and cloud accounts are not provi
 
 ## Background operation and autostart
 
-Autostart is enabled by default at registration and can be toggled in settings.
+On desktop and Android, autostart is enabled by default at registration and can be toggled in settings.
 Desktop synchronization runs in the **logged-in user's graphical session**, where
 clipboard access is available. It does not run as a root/system service before login.
 
@@ -41,6 +41,10 @@ clipboard access is available. It does not run as a root/system service before l
   startup is disabled. It uses the `connectedDevice` foreground-service type for
   communication with local devices. OS force-stop and some manufacturers' battery
   settings can prevent restarting until the app is opened again.
+- **iOS/iPadOS:** reception runs while the app is active. iOS suspends ordinary apps
+  in the background and does not offer boot autostart for this app. Text/images are
+  sent with an explicit clipboard button; native Photos/Files pickers and document
+  opening support file imports. There is no background clipboard monitoring.
 
 Reopening the desktop app opens the existing instance's window. Use **Quit LocalClipboard**
 in settings or **Quit** in the tray menu to stop it. On desktops without a tray,
@@ -54,6 +58,15 @@ storage; tap their notification / open the app to apply them to the clipboard. P
 and files are exposed as read-only content URIs through FileProvider, so other apps
 can paste them without storage-wide permissions. Whether an Android app accepts
 file/image clipboard URIs depends on that app.
+
+On iOS, register the same profile, then enter the computer's local IPv4 address in
+**Network settings** and allow **Local Network** access. The updated desktop/Android
+app replies directly, so no restricted broadcast entitlement is needed. Keep the
+phone app open to receive. **Open in / Copy to LocalClipboard** imports documents
+from apps that offer that action; arbitrary text sharing uses the clipboard button.
+Files selected from **Send files / photos** or imported from another app are queued
+for the active personal profile. **Open received files** provides Share / Save,
+retry and deletion of local copies. See the [iOS setup guide](packaging/ios/README.md).
 
 ## Clipboard formats
 
@@ -75,9 +88,9 @@ There is no transfer history, resumable streaming or delivery acknowledgement ye
 Desktop copies made while all registered peers are offline are not sent later;
 Android's latest explicit outgoing item waits for a peer for up to ten minutes.
 
-## Build: four packages and four installers
+## Build: five packages and five installers
 
-CMake 3.21+, a C++17 compiler, Qt 6 Core/Network/Widgets/Test and native packaging
+CMake 3.21.1+, a C++17 compiler, Qt 6 Core/Network/Widgets/Test and native packaging
 tools are required. Monocypher 4.0.2 is vendored; no crypto runtime download is needed.
 
 ```sh
@@ -85,6 +98,7 @@ tools are required. Monocypher 4.0.2 is vendored; no crypto runtime download is 
 ./scripts/build -t linux
 ./scripts/build -t windows       # Git Bash + MSVC + Qt + NSIS
 ./scripts/build -t android       # Android Qt kit, SDK, NDK, Java 17
+./scripts/build -t ios           # macOS + full Xcode + Qt iOS kit
 ```
 
 Each command builds the app **and** its package and installer into `dist/` on the
@@ -97,14 +111,20 @@ corresponding host. `-n` builds only the app. With a configured CMake build, use
 | macOS | `LocalClipboard-macos-package.zip` (deployed `.app`) | `LocalClipboard-macos-installer.pkg` |
 | Windows | `LocalClipboard-windows-package.zip` | `LocalClipboard-windows-installer.exe` (NSIS) |
 | Android | `LocalClipboard-android-package.apk` | `LocalClipboard-android-installer.zip` (APK + adb installation/registration launch scripts) |
+| iOS/iPadOS | `LocalClipboard-ios-package.zip` (arm64 device `.app`) | `LocalClipboard-ios-installer.zip` (source + Xcode build/sign/install script) |
 
 Linux filenames use the host architecture. APK is also directly installable on the
 phone; the separate installer ZIP automates USB installation from a computer with
-adb. CI builds all four platforms, tests the desktop core and verifies all eight
+adb. CI is configured to build all five platforms, test the desktop core and verify all ten
 outputs before publishing a combined artifact with checksums. Android CI builds an
 installable debug APK; distribution release APKs need a stable signing key. macOS
 artifacts are ad-hoc signed unless Apple signing identities are supplied; public
 Gatekeeper distribution additionally requires Apple signing and notarization.
+The iOS CI package is **unsigned**. Install on your own phone through the supplied
+Xcode installer, selecting your Apple Team and a unique bundle ID. It needs Xcode
+and the Qt iOS kit on the installing Mac; it is not an App Store IPA. A Personal
+Team can be used without App Groups or multicast capabilities. See the
+[iOS installation instructions](packaging/ios/README.md).
 
 See [build scripts](scripts/README.md) and [dependencies](dependencies/README.md).
 
@@ -119,8 +139,10 @@ ctest --test-dir build_desktop --output-on-failure
 Discovery uses IPv4 UDP `45871`; encrypted transfers normally use TCP `45872`
 (a free port is advertised if another user session owns that port). Allow these
 ports on private/LAN firewall profiles. Router client isolation, guest Wi-Fi, VPN
-routing and filtered broadcasts may prevent discovery. IPv6-only networks and
-manual peer addresses are not supported. Device clocks must be within 60 seconds
+routing and filtered broadcasts may prevent discovery. **Network settings** accepts
+up to 32 direct IPv4 peer addresses on every platform. iOS uses direct discovery
+only; enter one peer address on the phone to discover both directions. IPv6-only
+networks are not supported. Device clocks must be within 60 seconds
 for discovery announcements to be accepted.
 
 Announcements are authenticated using keyed BLAKE2b. A fresh mutual-authentication
@@ -139,3 +161,7 @@ copying content you do not want on your other registered devices.
 Android platform constraints are documented in the official
 [clipboard access rules](https://developer.android.com/about/versions/10/privacy/changes#clipboard-data)
 and [connected-device service documentation](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device).
+
+Apple documents [background suspension](https://developer.apple.com/documentation/uikit/extending-your-app-s-background-execution-time),
+[paste permissions](https://developer.apple.com/documentation/uikit/uipastecontrol),
+and the [restricted broadcast/multicast entitlement](https://developer.apple.com/news/?id=0oi77447).

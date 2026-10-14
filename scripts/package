@@ -4,7 +4,7 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 format=native
 build_dir=
 config=Release
-usage() { echo "Usage: scripts/package [-t native|linux|macos|windows|android|deb|sh|apk] [-b BUILD_DIR] [-c CONFIG]"; }
+usage() { echo "Usage: scripts/package [-t native|linux|macos|windows|android|ios|deb|sh|apk] [-b BUILD_DIR] [-c CONFIG]"; }
 fail() { echo "Error: $*" >&2; exit 1; }
 while getopts ':t:b:c:h' option; do
     case "$option" in
@@ -150,6 +150,19 @@ PY
         pkg_args=(--package "$stage/component.pkg")
         [[ -z ${MACOS_INSTALLER_SIGN_IDENTITY:-} ]] || pkg_args+=(--sign "$MACOS_INSTALLER_SIGN_IDENTITY")
         productbuild "${pkg_args[@]}" "$ROOT/dist/LocalClipboard-macos-installer.pkg"
+        ;;
+    ios)
+        [[ $(uname -s) == Darwin ]] || fail "iOS packaging requires macOS"
+        app="$build_dir/$config-iphoneos/LocalClipboard.app"
+        [[ -d "$app" ]] || app="$build_dir/$config/LocalClipboard.app"
+        [[ -d "$app" ]] || fail "Build the iOS device application first"
+        [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$app/Info.plist") == iPhoneOS ]] \
+            || fail "Expected an iPhoneOS device build, not macOS or Simulator"
+        mkdir -p "$stage/package"
+        cp -R "$app" "$stage/package/LocalClipboard.app"
+        cp "$ROOT/packaging/ios/README.md" "$stage/package/README.md"
+        ditto -c -k "$stage/package" "$ROOT/dist/LocalClipboard-ios-package.zip"
+        "$ROOT/scripts/package-ios-installer"
         ;;
     windows)
         [[ "$config" != Debug ]] || fail "Redistributable Windows packages require Release/RelWithDebInfo; use build -n for a Debug application"

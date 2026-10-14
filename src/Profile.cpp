@@ -6,6 +6,8 @@
 #include <QHostInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
+#include <QHostAddress>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -43,7 +45,8 @@ bool Profile::save(QString *error, const QString &directory) const {
     const QByteArray bytes = QJsonDocument(QJsonObject{
         {"version", 2}, {"deviceId", deviceId}, {"deviceName", deviceName.left(80)},
         {"ownerName", ownerName.left(80)}, {"key", QString::fromLatin1(key.toHex())},
-        {"autostart", autostart}, {"paused", paused}
+        {"autostart", autostart}, {"paused", paused},
+        {"peerAddresses", QJsonArray::fromStringList(peerAddresses)}
     }).toJson();
     if (file.write(bytes) != bytes.size() || !file.commit()) {
         if (error) *error = file.errorString();
@@ -63,6 +66,12 @@ Profile Profile::load(const QString &directory) {
             p.join(QStringLiteral("LC2.") + obj.value("key").toString());
             p.autostart = obj.value("autostart").toBool(true);
             p.paused = obj.value("paused").toBool(false);
+            for (const auto &entry : obj.value("peerAddresses").toArray()) {
+                const QHostAddress address(entry.toString());
+                if (address.protocol() == QAbstractSocket::IPv4Protocol && !address.isNull()
+                    && !address.isMulticast() && address != QHostAddress::Broadcast && p.peerAddresses.size() < 32)
+                    p.peerAddresses.append(address.toString());
+            }
         }
     }
     if (QUuid(p.deviceId).isNull()) p.deviceId = QUuid::createUuid().toString(QUuid::WithoutBraces);

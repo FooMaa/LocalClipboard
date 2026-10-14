@@ -3,11 +3,12 @@ set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 usage() {
     cat <<'EOF'
-Usage: scripts/build [-t desktop|linux|macos|windows|android] [-b DIR] [-c Debug|Release|RelWithDebInfo|MinSizeRel] [-j JOBS] [-a ABI] [-n] [-- CMAKE_OPTIONS...]
+Usage: scripts/build [-t desktop|linux|macos|windows|android|ios] [-b DIR] [-c Debug|Release|RelWithDebInfo|MinSizeRel] [-j JOBS] [-a ABI] [-n] [-- CMAKE_OPTIONS...]
 Android: set QT_ANDROID_ROOT, QT_HOST_PATH, ANDROID_SDK_ROOT, ANDROID_NDK_ROOT.
 QT_ANDROID_ROOT is the Qt Android kit prefix, not the desktop Qt prefix.
 Default target: desktop. Android defaults to Debug (installable APK).
 Packages and installers are produced by default. -n skips packaging.
+iOS: full Xcode + QT_IOS_ROOT; optional IOS_TEAM_ID and IOS_BUNDLE_ID for device signing.
 EOF
 }
 fail() { echo "Error: $*" >&2; exit 1; }
@@ -30,10 +31,10 @@ shift "$((OPTIND - 1))"
 [[ ${1:-} != -- ]] || shift
 [[ $# == 0 || ${1:-} == -D* || ${1:-} == -G* ]] || fail "Use -t to select a target"
 case "$target" in
-    desktop|linux|macos|windows|android) ;; *) fail "Unknown target: $target" ;;
+    desktop|linux|macos|windows|android|ios) ;; *) fail "Unknown target: $target" ;;
 esac
 case "$target:$(uname -s)" in
-    linux:Linux|macos:Darwin|windows:MINGW*|windows:MSYS*|windows:CYGWIN*|desktop:*|android:*) ;;
+    linux:Linux|macos:Darwin|ios:Darwin|windows:MINGW*|windows:MSYS*|windows:CYGWIN*|desktop:*|android:*) ;;
     *) fail "Target $target requires its native host; use a CMake toolchain for cross compilation" ;;
 esac
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || fail "Jobs must be a positive integer"
@@ -41,7 +42,24 @@ config=${config:-$([[ "$target" == android ]] && echo Debug || echo Release)}
 case "$config" in Debug|Release|RelWithDebInfo|MinSizeRel) ;; *) fail "Invalid configuration: $config" ;; esac
 build_dir=${build_dir:-"$ROOT/build_$target"}
 args=(-S "$ROOT" -B "$build_dir" "-DCMAKE_BUILD_TYPE=$config")
-if [[ "$target" == android ]]; then
+if [[ "$target" == ios ]]; then
+    xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1 || fail "Install full Xcode with the iOS SDK and select it with xcode-select (Command Line Tools alone are insufficient)"
+    : "${QT_IOS_ROOT:?Set QT_IOS_ROOT to the Qt iOS kit prefix}"
+    [[ -x "$QT_IOS_ROOT/bin/qt-cmake" ]] || fail "iOS qt-cmake not found"
+    ios_args=(-G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY -DBUILD_TESTING=OFF
+        "-DLOCALCLIPBOARD_IOS_TEAM=${IOS_TEAM_ID:-}" "-DLOCALCLIPBOARD_IOS_BUNDLE_ID=${IOS_BUNDLE_ID:-org.localclipboard.ios}")
+    [[ -z ${QT_HOST_PATH:-} ]] || ios_args+=("-DQT_HOST_PATH=$QT_HOST_PATH")
+    "$QT_IOS_ROOT/bin/qt-cmake" "${args[@]}" "${ios_args[@]}" "$@"
+    if [[ -n ${IOS_TEAM_ID:-} ]]; then
+        cmake --build "$build_dir" --config "$config" --parallel "$jobs" --target LocalClipboard -- -allowProvisioningUpdates
+    else
+        # This is a command-line override, not a persistent Xcode project setting.
+        # The same generated project remains signable through Xcode's Team selector.
+        cmake --build "$build_dir" --config "$config" --parallel "$jobs" --target LocalClipboard -- CODE_SIGNING_ALLOWED=NO
+    fi
+    if [[ "$package" == true ]]; then "$ROOT/scripts/package" -t ios -b "$build_dir" -c "$config"; fi
+elif [[ "$target" == android ]]; then
     case "$abi" in arm64-v8a|armeabi-v7a|x86|x86_64) ;; *) fail "Unsupported Android ABI: $abi" ;; esac
     : "${QT_ANDROID_ROOT:?Set QT_ANDROID_ROOT to the Qt Android kit prefix}"
     : "${QT_HOST_PATH:?Set QT_HOST_PATH to the matching desktop Qt prefix}"

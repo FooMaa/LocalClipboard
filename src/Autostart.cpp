@@ -3,7 +3,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
 #include <QProcess>
+#endif
 #include <QSaveFile>
 #include <QSettings>
 #include <QStandardPaths>
@@ -35,7 +37,11 @@ namespace {
 }
 bool Autostart::setEnabled(bool enabled, QString *error) {
     const QString exe = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
-#if defined(Q_OS_ANDROID)
+#if defined(Q_OS_IOS)
+    Q_UNUSED(exe);
+    if (enabled && error) *error = "iOS does not support login startup or a permanent background receiver.";
+    return !enabled;
+#elif defined(Q_OS_ANDROID)
     Q_UNUSED(exe); Q_UNUSED(error);
     return AndroidBridge::setEnabled(enabled);
 #elif defined(Q_OS_WIN)

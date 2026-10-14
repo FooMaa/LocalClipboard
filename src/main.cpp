@@ -9,6 +9,35 @@
 #include <QLocalSocket>
 #include <QLockFile>
 #include <QMessageBox>
+#ifdef Q_OS_IOS
+#include "IOSBridge.h"
+#include <QFileOpenEvent>
+#include <functional>
+class IOSApplication final : public QApplication {
+public:
+    using QApplication::QApplication;
+    QList<QUrl> pendingFiles;
+    QString importError;
+    std::function<void(const QList<QUrl> &)> onFiles;
+    std::function<void(const QString &)> onImportError;
+    bool event(QEvent *event) override {
+        if (event->type() == QEvent::FileOpen) {
+            const auto *file = static_cast<QFileOpenEvent *>(event);
+            // Copy immediately, including during first-run registration: access to
+            // the sending app's security-scoped URL may expire after this event.
+            IOSBridge::importFiles({file->url()}, [this](const QList<QUrl> &urls, const QString &error) {
+                if (!error.isEmpty()) {
+                    if (onImportError) onImportError(error); else importError = error;
+                    return;
+                }
+                if (onFiles) onFiles(urls); else pendingFiles.append(urls);
+            });
+            return true;
+        }
+        return QApplication::event(event);
+    }
+};
+#endif
 #ifdef Q_OS_ANDROID
 #include "AndroidBridge.h"
 #endif
@@ -29,13 +58,17 @@ int main(int argc, char *argv[]) {
         }
     }
 #endif
+#ifdef Q_OS_IOS
+    IOSApplication app(argc, argv); identity();
+#else
     QApplication app(argc, argv); identity();
-#ifdef Q_OS_ANDROID
-    QApplication::setQuitOnLastWindowClosed(true); // The receiver lives in its own service process.
+#endif
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    QApplication::setQuitOnLastWindowClosed(true);
 #else
     QApplication::setQuitOnLastWindowClosed(false);
 #endif
-#ifndef Q_OS_ANDROID
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     if (app.arguments().contains("--session-start") && Autostart::startSessionService()) return 0;
     QDir().mkpath(Profile::dataDirectory());
     QLockFile lock(QDir(Profile::dataDirectory()).filePath("instance.lock"));
@@ -55,6 +88,9 @@ int main(int argc, char *argv[]) {
     ipc.listen(ipcName);
 #endif
     Profile profile = Profile::load();
+#ifdef Q_OS_IOS
+    profile.autostart = false;
+#endif
     if (!profile.registered()) {
         if (app.arguments().contains("--background") || app.arguments().contains("--session-start")) return 0;
         if (!registerDevice(&profile)) return 0;
@@ -63,7 +99,13 @@ int main(int argc, char *argv[]) {
     if (!Autostart::setEnabled(profile.autostart, &error) && !app.arguments().contains("--background"))
         QMessageBox::warning(nullptr, "Autostart", error);
     ClipboardSync window(profile);
-#ifndef Q_OS_ANDROID
+#ifdef Q_OS_IOS
+    app.onFiles = [&window](const QList<QUrl> &urls) { window.importFiles(urls); };
+    app.onImportError = [&window](const QString &error) { QMessageBox::warning(&window, "Import", error); };
+    if (!app.pendingFiles.isEmpty()) { window.importFiles(app.pendingFiles); app.pendingFiles.clear(); }
+    if (!app.importError.isEmpty()) QMessageBox::warning(&window, "Import", app.importError);
+#endif
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     QObject::connect(&ipc, &QLocalServer::newConnection, &window, [&] {
         while (ipc.hasPendingConnections()) {
             auto *socket = ipc.nextPendingConnection();

@@ -1,14 +1,16 @@
 # Build and package
 
 Run from any directory; `-b` paths are relative to the caller. Native builds need
-the corresponding host. The four-platform GitHub Actions workflow supplies these
-hosts and uploads a combined distribution with exactly four packages and four installers.
+the corresponding host. The five-platform GitHub Actions workflow supplies these
+hosts and uploads a combined distribution with five packages and five installers.
+The iOS CI application is unsigned and must be signed through your Xcode account.
 
 ```sh
 ./scripts/build -t linux -c Release -j 4
 ./scripts/build -t macos
 ./scripts/build -t windows       # Git Bash in an MSVC environment
 ./scripts/build -t android -a arm64-v8a -c Debug
+./scripts/build -t ios
 ```
 
 Packaging is included in the build. Default directories are `build_TARGET`;
@@ -51,3 +53,29 @@ For Apple distribution, set `MACOS_APP_SIGN_IDENTITY` and
 `MACOS_INSTALLER_SIGN_IDENTITY`; notarize the resulting artifacts separately. The
 local default uses ad-hoc app signing and an unsigned PKG. See
 [dependencies](../dependencies/README.md) for the Android SDK/NDK setup.
+
+## iOS / iPadOS (local Xcode installation)
+
+`./scripts/package-ios-installer` assembles the source installer ZIP without an
+iOS SDK. The regular `build -t ios` automatically emits both the app and installer.
+
+Requires full Xcode with the iPhoneOS SDK and a Qt iOS kit, iOS 16+:
+
+```sh
+export QT_IOS_ROOT="$HOME/Qt/6.8.3/ios"
+export QT_HOST_PATH="$HOME/Qt/6.8.3/macos"
+./scripts/build -t ios
+```
+
+This generates `build_ios/LocalClipboard.xcodeproj`, compiles an unsigned arm64
+app, and emits the app ZIP plus the source installer ZIP. Open the generated
+project in Xcode, select your Team and a unique Bundle Identifier on the
+LocalClipboard app target, choose your phone and Run. The unsigned override is
+used only by the CLI build, so it does not disable signing in the Xcode project.
+
+Set `IOS_TEAM_ID` and `IOS_BUNDLE_ID` before building for automatic development
+signing through an account already configured in Xcode. The installer additionally
+accepts `IOS_DEVICE_ID` to install/launch with `xcrun devicectl`. Otherwise it opens
+Xcode for interactive signing and Run. The installer contains complete build source,
+not a machine-specific generated Xcode project or another person's provisioning.
+See [iOS installation](../packaging/ios/README.md) for permissions, pairing and limits.
