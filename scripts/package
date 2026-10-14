@@ -1,55 +1,81 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-format=
+format=native
 build_dir=
-usage() { echo "Usage: scripts/package -t deb|sh|apk [-b BUILD_DIR]"; }
-while getopts ':t:b:h' option; do
+config=Release
+usage() { echo "Usage: scripts/package [-t native|linux|macos|windows|android|deb|sh|apk] [-b BUILD_DIR] [-c CONFIG]"; }
+fail() { echo "Error: $*" >&2; exit 1; }
+while getopts ':t:b:c:h' option; do
     case "$option" in
-        t) format=$OPTARG ;; b) build_dir=$OPTARG ;; h) usage; exit 0 ;;
-        *) usage >&2; exit 1 ;;
+        t) format=$OPTARG ;; b) build_dir=$OPTARG ;; c) config=$OPTARG ;;
+        h) usage; exit 0 ;; *) usage >&2; exit 1 ;;
     esac
 done
 shift "$((OPTIND - 1))"
 [[ $# == 0 ]] || { usage >&2; exit 1; }
+if [[ "$format" == native ]]; then
+    case "$(uname -s)" in Darwin) format=macos ;; Linux) format=linux ;; MINGW*|MSYS*|CYGWIN*) format=windows ;; *) fail "Unsupported host" ;; esac
+fi
 mkdir -p "$ROOT/dist"
+build_dir=${build_dir:-"$ROOT/build_$format"}
+build_dir=$(cd "$build_dir" && pwd)
+version=$(sed -n 's/^project(LocalClipboard VERSION \([^ ]*\).*/\1/p' "$ROOT/CMakeLists.txt")
+[[ -n "$version" ]] || fail "Project version missing"
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
 case "$format" in
-    deb|sh)
-        build_dir=${build_dir:-"$ROOT/build_linux"}
-        [[ -f "$build_dir/LocalClipboard" ]] || { echo "Build Linux first or specify -b" >&2; exit 1; }
-        stage=$(mktemp -d)
-        trap 'rm -rf "$stage"' EXIT
-        if [[ "$format" == deb ]]; then
-            arch=$(dpkg --print-architecture)
-            mkdir -p "$stage/DEBIAN" "$stage/usr/bin"
-            cp "$build_dir/LocalClipboard" "$stage/usr/bin/localclipboard"
-            mkdir -p "$stage/debian"
-            printf 'Source: localclipboard\nSection: utils\nPriority: optional\nMaintainer: LocalClipboard <dev@localclipboard.org>\n\nPackage: localclipboard\nArchitecture: any\nDescription: LAN clipboard synchronization\n' > "$stage/debian/control"
-            runtime_depends=$(cd "$stage" && dpkg-shlibdeps -O -e"$stage/usr/bin/localclipboard")
-            runtime_depends=${runtime_depends#shlibs:Depends=}
-            rm -rf "$stage/debian"
-            cat > "$stage/DEBIAN/control" <<EOF
+    linux|deb|sh)
+        [[ $(uname -s) == Linux ]] || fail "Linux packaging requires Linux"
+        [[ -f "$build_dir/LocalClipboard" ]] || fail "Build Linux first"
+        arch=$(dpkg --print-architecture)
+        mkdir -p "$stage/root/DEBIAN" "$stage/root/usr/bin" "$stage/root/usr/share/applications" "$stage/root/usr/share/doc/localclipboard"
+        cp "$build_dir/LocalClipboard" "$stage/root/usr/bin/localclipboard"
+        cp "$ROOT/packaging/linux/localclipboard.desktop" "$stage/root/usr/share/applications/"
+        cp "$ROOT/third_party/monocypher/LICENCE.md" "$stage/root/usr/share/doc/localclipboard/monocypher-license"
+        mkdir -p "$stage/root/debian"
+        cat > "$stage/root/debian/control" <<'CONTROL'
+Source: localclipboard
+Section: utils
+Priority: optional
+Maintainer: LocalClipboard <dev@localclipboard.org>
+
 Package: localclipboard
-Version: 1.0.0
+Architecture: any
+Description: Personal encrypted LAN clipboard synchronization
+CONTROL
+        runtime_depends=$(cd "$stage/root" && dpkg-shlibdeps -O -e"$stage/root/usr/bin/localclipboard")
+        runtime_depends=${runtime_depends#shlibs:Depends=}
+        rm -rf "$stage/root/debian"
+        cat > "$stage/root/DEBIAN/control" <<CONTROL
+Package: localclipboard
+Version: $version
 Section: utils
 Priority: optional
 Architecture: $arch
 Maintainer: LocalClipboard <dev@localclipboard.org>
 Depends: $runtime_depends, qt6-qpa-plugins
-Description: LAN text clipboard synchronization application
-EOF
-            dpkg-deb --build "$stage" "$ROOT/dist/localclipboard_$arch.deb"
-        else
-            cp "$build_dir/LocalClipboard" "$stage/localclipboard"
-            cat > "$stage/install.sh" <<'EOF'
+Description: Personal encrypted LAN clipboard synchronization
+ Text, photos and files. Register separate personal profiles on first launch.
+CONTROL
+        package="$ROOT/dist/LocalClipboard-linux-$arch.deb"
+        dpkg-deb --build --root-owner-group "$stage/root" "$package"
+        cp "$package" "$stage/localclipboard.deb"
+        cat > "$stage/install.sh" <<'INSTALL'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ $EUID != 0 ]] || { echo "Run this installer as your desktop user; it will request sudo for package installation." >&2; exit 1; }
+command -v apt-get >/dev/null || { echo "This package supports Debian/Ubuntu. Build from source on other distributions." >&2; exit 1; }
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
-install -Dm755 localclipboard "$HOME/.local/bin/localclipboard"
-echo "Installed. Qt 6 runtime and a graphical desktop session are required."
-EOF
-            output="$ROOT/dist/localclipboard-installer.sh"
-            cat > "$output" <<'EOF'
+sudo apt-get install -y ./localclipboard.deb
+if [[ -n ${DISPLAY:-}${WAYLAND_DISPLAY:-} ]]; then
+    nohup /usr/bin/localclipboard >/dev/null 2>&1 &
+else
+    echo "Installed. Open LocalClipboard in your desktop session to register this device."
+fi
+INSTALL
+        output="$ROOT/dist/LocalClipboard-linux-$arch-installer.sh"
+        cat > "$output" <<'INSTALLER'
 #!/usr/bin/env bash
 set -euo pipefail
 stage=$(mktemp -d)
@@ -59,19 +85,116 @@ tail -n +"$line" "$0" | tar xz -C "$stage"
 bash "$stage/install.sh"
 exit 0
 __ARCHIVE_BELOW__
-EOF
-            tar czf "$stage/payload.tar.gz" -C "$stage" localclipboard install.sh
-            cat "$stage/payload.tar.gz" >> "$output"
-            chmod +x "$output"
-        fi ;;
-    apk)
-        build_dir=${build_dir:-"$ROOT/build_android"}
-        [[ -d "$build_dir" ]] || { echo "Android build directory missing" >&2; exit 1; }
-        count=0
-        while IFS= read -r -d '' apk; do
-            cp "$apk" "$ROOT/dist/$(basename "$apk")"
-            count=$((count + 1))
+INSTALLER
+        tar czf "$stage/payload.tar.gz" -C "$stage" localclipboard.deb install.sh
+        cat "$stage/payload.tar.gz" >> "$output"
+        chmod +x "$output"
+        ;;
+    macos)
+        [[ $(uname -s) == Darwin ]] || fail "macOS packaging requires macOS"
+        app="$build_dir/LocalClipboard.app"
+        [[ -d "$app" ]] || app="$build_dir/$config/LocalClipboard.app"
+        [[ -d "$app" ]] || fail "Build macOS first"
+        command -v macdeployqt >/dev/null || fail "macdeployqt must be on PATH"
+        mkdir -p "$stage/root/Applications" "$stage/scripts"
+        cp -R "$app" "$stage/root/Applications/"
+        deploy_args=(-always-overwrite -no-plugins -no-codesign)
+        command -v qtpaths >/dev/null || fail "qtpaths must be on PATH"
+        plugin_root=$(qtpaths --query QT_INSTALL_PLUGINS)
+        deployed_app="$stage/root/Applications/LocalClipboard.app"
+        # Deploy only the platform, widget style and raster codecs used by this app.
+        # A full Qt installation may also contain PDF/QML/virtual-keyboard plugins.
+        for plugin in platforms/libqcocoa.dylib styles/libqmacstyle.dylib \
+            imageformats/libqjpeg.dylib imageformats/libqgif.dylib imageformats/libqico.dylib \
+            imageformats/libqicns.dylib imageformats/libqtga.dylib imageformats/libqwbmp.dylib \
+            imageformats/libqtiff.dylib imageformats/libqwebp.dylib; do
+            [[ -f "$plugin_root/$plugin" ]] || continue
+            mkdir -p "$deployed_app/Contents/PlugIns/$(dirname "$plugin")"
+            cp "$plugin_root/$plugin" "$deployed_app/Contents/PlugIns/$plugin"
+            deploy_args+=("-executable=$deployed_app/Contents/PlugIns/$plugin")
+        done
+        [[ -f "$deployed_app/Contents/PlugIns/platforms/libqcocoa.dylib" ]] || fail "Qt Cocoa platform plugin missing"
+        deploy_args+=("-libpath=$(qtpaths --query QT_INSTALL_LIBS)")
+        macdeployqt "$stage/root/Applications/LocalClipboard.app" "${deploy_args[@]}"
+        mkdir -p "$deployed_app/Contents/Resources"
+        printf '[Paths]\nPlugins=PlugIns\n' > "$deployed_app/Contents/Resources/qt.conf"
+        mkdir -p "$stage/root/Applications/LocalClipboard.app/Contents/Resources/licenses"
+        cp "$ROOT/third_party/monocypher/LICENCE.md" "$stage/root/Applications/LocalClipboard.app/Contents/Resources/licenses/monocypher.txt"
+        if [[ -n ${MACOS_APP_SIGN_IDENTITY:-} ]]; then
+            codesign --force --deep --options runtime --timestamp --sign "$MACOS_APP_SIGN_IDENTITY" "$stage/root/Applications/LocalClipboard.app"
+        else
+            codesign --force --deep --sign - "$stage/root/Applications/LocalClipboard.app"
+        fi
+        codesign --verify --deep --strict "$stage/root/Applications/LocalClipboard.app"
+        python3 "$ROOT/scripts/verify-macos-bundle" "$stage/root/Applications/LocalClipboard.app"
+        ditto -c -k --keepParent "$stage/root/Applications/LocalClipboard.app" "$ROOT/dist/LocalClipboard-macos-package.zip"
+        cp "$ROOT/packaging/macos/postinstall" "$stage/scripts/postinstall"
+        chmod +x "$stage/scripts/postinstall"
+        pkgbuild --analyze --root "$stage/root" "$stage/components.plist"
+        python3 - "$stage/components.plist" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], 'rb') as stream:
+    components = plistlib.load(stream)
+for component in components:
+    component['BundleIsRelocatable'] = False
+with open(sys.argv[1], 'wb') as stream:
+    plistlib.dump(components, stream)
+PY
+        pkgbuild --root "$stage/root" --identifier org.localclipboard --version "$version" \
+            --component-plist "$stage/components.plist" --install-location / --scripts "$stage/scripts" "$stage/component.pkg"
+        pkg_args=(--package "$stage/component.pkg")
+        [[ -z ${MACOS_INSTALLER_SIGN_IDENTITY:-} ]] || pkg_args+=(--sign "$MACOS_INSTALLER_SIGN_IDENTITY")
+        productbuild "${pkg_args[@]}" "$ROOT/dist/LocalClipboard-macos-installer.pkg"
+        ;;
+    windows)
+        [[ "$config" != Debug ]] || fail "Redistributable Windows packages require Release/RelWithDebInfo; use build -n for a Debug application"
+        binary="$build_dir/$config/LocalClipboard.exe"
+        [[ -f "$binary" ]] || binary="$build_dir/LocalClipboard.exe"
+        [[ -f "$binary" ]] || fail "Build Windows first"
+        command -v windeployqt >/dev/null || fail "windeployqt must be on PATH"
+        deploy="$stage/deploy"
+        mkdir -p "$deploy/licenses"
+        cp "$binary" "$deploy/LocalClipboard.exe"
+        cp "$ROOT/third_party/monocypher/LICENCE.md" "$deploy/licenses/monocypher.txt"
+        windeployqt --release --no-compiler-runtime --no-translations "$deploy/LocalClipboard.exe"
+        # App-local MSVC runtime avoids requiring an administrator to install VC redist.
+        : "${VCToolsRedistDir:?Run packaging from the MSVC developer environment (VCToolsRedistDir missing)}"
+        crt_root=$(cygpath -u "$VCToolsRedistDir")
+        crt_arch=${VSCMD_ARG_TGT_ARCH:-x64}
+        crt_dir=
+        while IFS= read -r -d '' candidate; do crt_dir=$(dirname "$candidate"); break; done \
+            < <(find "$crt_root/$crt_arch" -type f -name msvcp140.dll -print0)
+        [[ -n "$crt_dir" ]] || fail "MSVC redistributable CRT DLLs missing for $crt_arch"
+        cp "$crt_dir/"*.dll "$deploy/"
+        deploy_win=$(cygpath -w "$deploy")
+        output_win=$(cygpath -w "$ROOT/dist/LocalClipboard-windows-package.zip")
+        export LOCALCLIPBOARD_DEPLOY="$deploy_win" LOCALCLIPBOARD_PACKAGE="$output_win"
+        powershell.exe -NoProfile -Command 'Compress-Archive -Path (Join-Path $env:LOCALCLIPBOARD_DEPLOY "*") -DestinationPath $env:LOCALCLIPBOARD_PACKAGE -Force'
+        nsis=${NSIS_EXE:-makensis}
+        if ! command -v "$nsis" >/dev/null; then
+            nsis='/c/Program Files (x86)/NSIS/makensis.exe'
+        fi
+        [[ -x "$nsis" ]] || command -v "$nsis" >/dev/null || fail "Install NSIS or set NSIS_EXE"
+        MSYS_NO_PATHCONV=1 "$nsis" "-DAPP_VERSION=$version" "-DDEPLOY_DIR=$deploy_win" \
+            "-DOUTPUT_FILE=$(cygpath -w "$ROOT/dist/LocalClipboard-windows-installer.exe")" \
+            "$(cygpath -w "$ROOT/packaging/windows/installer.nsi")"
+        ;;
+    android|apk)
+        apk=
+        while IFS= read -r -d '' candidate; do
+            [[ $(basename "$candidate") != *unaligned* && $(basename "$candidate") != *unsigned* ]] || continue
+            [[ -z "$apk" ]] || fail "Multiple installable APKs found; use a clean build directory for one configuration/ABI"
+            apk=$candidate
         done < <(find "$build_dir" -type f -path '*/outputs/apk/*' -name '*.apk' -print0)
-        [[ $count -gt 0 ]] || { echo "No APK found; build Android first" >&2; exit 1; } ;;
+        [[ -n "$apk" ]] || fail "No signed APK found; Debug is installable, Release needs signing"
+        cp "$apk" "$ROOT/dist/LocalClipboard-android-package.apk"
+        mkdir -p "$stage/android-installer"
+        cp "$apk" "$stage/android-installer/LocalClipboard.apk"
+        cp "$ROOT/packaging/android/install.sh" "$ROOT/packaging/android/install.ps1" "$ROOT/packaging/android/README.md" "$stage/android-installer/"
+        chmod +x "$stage/android-installer/install.sh"
+        cp "$ROOT/third_party/monocypher/LICENCE.md" "$stage/android-installer/monocypher-license.txt"
+        (cd "$stage/android-installer" && zip -qr "$ROOT/dist/LocalClipboard-android-installer.zip" .)
+        ;;
     *) usage >&2; exit 1 ;;
 esac
+printf 'Packages and installers: %s/dist/\n' "$ROOT"

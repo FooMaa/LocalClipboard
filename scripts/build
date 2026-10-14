@@ -3,10 +3,11 @@ set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 usage() {
     cat <<'EOF'
-Usage: scripts/build [-t desktop|linux|macos|windows|android] [-b DIR] [-c Debug|Release|RelWithDebInfo|MinSizeRel] [-j JOBS] [-a ABI] [-- CMAKE_OPTIONS...]
+Usage: scripts/build [-t desktop|linux|macos|windows|android] [-b DIR] [-c Debug|Release|RelWithDebInfo|MinSizeRel] [-j JOBS] [-a ABI] [-n] [-- CMAKE_OPTIONS...]
 Android: set QT_ANDROID_ROOT, QT_HOST_PATH, ANDROID_SDK_ROOT, ANDROID_NDK_ROOT.
 QT_ANDROID_ROOT is the Qt Android kit prefix, not the desktop Qt prefix.
 Default target: desktop. Android defaults to Debug (installable APK).
+Packages and installers are produced by default. -n skips packaging.
 EOF
 }
 fail() { echo "Error: $*" >&2; exit 1; }
@@ -15,10 +16,12 @@ build_dir=
 config=
 jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 abi=arm64-v8a
-while getopts ':t:b:c:j:a:h' option; do
+package=true
+while getopts ':t:b:c:j:a:nh' option; do
     case "$option" in
         t) target=$OPTARG ;; b) build_dir=$OPTARG ;; c) config=$OPTARG ;;
         j) jobs=$OPTARG ;; a) abi=$OPTARG ;; h) usage; exit 0 ;;
+        n) package=false ;;
         :) fail "Option -$OPTARG requires a value" ;;
         \?) fail "Unknown option -$OPTARG" ;;
     esac
@@ -54,8 +57,9 @@ if [[ "$target" == android ]]; then
         "-DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" "-DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT" \
         "-DANDROID_ABI=$abi" "$@"
     cmake --build "$build_dir" --config "$config" --parallel "$jobs" --target apk
-    echo "APK output: $build_dir/android-build/build/outputs/apk/ (Release requires signing before installation)"
+    if [[ "$package" == true ]]; then "$ROOT/scripts/package" -t android -b "$build_dir" -c "$config"; fi
 else
     cmake "${args[@]}" "$@"
     cmake --build "$build_dir" --config "$config" --parallel "$jobs" --target LocalClipboard
+    if [[ "$package" == true ]]; then cmake --build "$build_dir" --config "$config" --target installers; fi
 fi

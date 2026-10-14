@@ -1,333 +1,218 @@
 #include "ClipboardSync.h"
-
+#include "Autostart.h"
+#include "ClipboardPayload.h"
+#include "Registration.h"
+#include "SyncEngine.h"
+#include <QApplication>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QCloseEvent>
-#include <QDateTime>
-#include <QHostInfo>
-#include <QJsonDocument>
-#include <QJsonParseError>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFileDialog>
 #include <QLabel>
 #include <QListWidget>
-#include <QNetworkInterface>
+#include <QMenu>
+#include <QMessageBox>
+#include <QMimeData>
 #include <QPushButton>
 #include <QStatusBar>
-#include <QTcpSocket>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QWidget>
-#include <QCryptographicHash>
-#include <QDataStream>
-#include <QMessageBox>
-#include <QApplication>
 #include <QStyle>
+#include <QSystemTrayIcon>
+#include <QTimer>
+#include <QVBoxLayout>
+#ifdef Q_OS_ANDROID
+#include "AndroidBridge.h"
+#endif
 
-namespace {
-constexpr quint16 DiscoveryPort = 45871;
-constexpr quint16 TransferPort = 45872;
-constexpr int MaxMessageBytes = 1024 * 1024;
-constexpr int PeerTimeoutMs = 15000;
-}
-
-ClipboardSync::ClipboardSync(QWidget *parent)
-    : QMainWindow(parent),
-      m_deviceId(QUuid::createUuid().toString(QUuid::WithoutBraces)),
-      m_deviceName(QHostInfo::localHostName()),
-      m_clipboard(QApplication::clipboard()),
-      m_udp(new QUdpSocket(this)),
-      m_tcpServer(new QTcpServer(this)),
-      m_announceTimer(new QTimer(this)),
-      m_peerTimer(new QTimer(this))
-{
-    setWindowTitle(QStringLiteral("LocalClipboard"));
-    resize(520, 420);
-    m_clock.start();
-
+ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWindow(parent), m_profile(profile) {
+    setWindowTitle("LocalClipboard — " + m_profile.ownerName);
+    resize(600, 460);
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
-    auto *intro = new QLabel(
-        QStringLiteral("LAN-only text clipboard sync. Use only on a trusted private Wi-Fi network."),
-        central);
-    intro->setWordWrap(true);
-    layout->addWidget(intro);
-
-    m_peersList = new QListWidget(central);
-    layout->addWidget(m_peersList, 1);
-
+    auto *intro = new QLabel("Your profile: " + profile.ownerName + " · Device: " + profile.deviceName +
+        "\nOnly devices registered with your connection code synchronize. Text, images and files stay on your LAN.", central);
+    intro->setWordWrap(true); layout->addWidget(intro);
 #ifdef Q_OS_ANDROID
-    auto *sendButton = new QPushButton(QStringLiteral("Send current clipboard"), central);
-    layout->addWidget(sendButton);
-    connect(sendButton, &QPushButton::clicked, this, [this] {
-        if (QApplication::applicationState() != Qt::ApplicationActive) return;
-        const QString text = m_clipboard->text();
-        if (m_pauseCheck->isChecked() || text.isEmpty()) return;
-        if (text.toUtf8().size() > MaxMessageBytes) {
-            log(QStringLiteral("Clipboard text exceeds 1 MiB; not sent."));
-            return;
-        }
-        const QString hash = currentTextHash(text);
-        m_lastText = text;
-        m_lastHash = hash;
-        m_recentHashes.insert(hash);
-        if (m_recentHashes.size() > 128) m_recentHashes.clear();
-        broadcastText(text, hash);
-        log(QStringLiteral("Sent clipboard text (%1 characters).").arg(text.size()));
+    auto *androidNote = new QLabel("Background reception is enabled. Tap a received-item notification to apply it. "
+        "Android permits clipboard reading only while this app has focus. You can also send photos or files with Share → LocalClipboard.", central);
+    androidNote->setWordWrap(true); layout->addWidget(androidNote);
+#endif
+    m_peers = new QListWidget(central); layout->addWidget(m_peers, 1);
+    m_pause = new QCheckBox("Pause synchronization", central); m_pause->setChecked(profile.paused); layout->addWidget(m_pause);
+    auto *startup = new QCheckBox("Start in background at login / device restart", central);
+    startup->setChecked(profile.autostart); layout->addWidget(startup);
+    auto *send = new QPushButton("Send current clipboard", central);
+    auto *files = new QPushButton("Send files / photos…", central);
+    auto *pair = new QPushButton("Connect another device…", central);
+    auto *change = new QPushButton("Change personal profile…", central);
+    auto *received = new QPushButton("Open received files", central);
+    auto *quit = new QPushButton("Quit LocalClipboard", central);
+    layout->addWidget(send); layout->addWidget(files); layout->addWidget(pair); layout->addWidget(change); layout->addWidget(received);
+    layout->addWidget(quit);
+    m_status = new QLabel(central); layout->addWidget(m_status); setCentralWidget(central);
+    connect(send, &QPushButton::clicked, this, [this] { sendClipboard(true); });
+    connect(quit, &QPushButton::clicked, this, [] {
+#ifdef Q_OS_ANDROID
+        AndroidBridge::stopService();
+#endif
+        QCoreApplication::quit();
     });
-    auto *controls = new QVBoxLayout;
+    connect(files, &QPushButton::clicked, this, [this] {
+        const QList<QUrl> urls = QFileDialog::getOpenFileUrls(this, "Select files or photos");
+        if (urls.isEmpty()) return;
+        QString error;
+        const QJsonObject payload = ClipboardPayload::fromFiles(urls, &error);
+        if (!payload.isEmpty()) sendPayload(payload); else log(error);
+    });
+    connect(pair, &QPushButton::clicked, this, [this] { showInvitation(m_profile, this); });
+    connect(change, &QPushButton::clicked, this, [this, intro, startup] {
+        Profile next = m_profile;
+        if (!registerDevice(&next, this)) return;
+        m_profile = next; m_lastHash.clear(); m_pause->setChecked(false); startup->setChecked(next.autostart);
+        setWindowTitle("LocalClipboard — " + next.ownerName);
+        intro->setText("Your profile: " + next.ownerName + " · Device: " + next.deviceName +
+            "\nOnly devices registered with your connection code synchronize. Text, images and files stay on your LAN.");
+        QString error;
+        if (!Autostart::setEnabled(next.autostart, &error)) log(error);
+        startEngine();
+    });
+    connect(received, &QPushButton::clicked, this, [this] {
+        const QString folder = QDir(Profile::dataDirectory()).filePath("received");
+        QDir().mkpath(folder);
+#ifdef Q_OS_ANDROID
+        AndroidBridge::openReceivedFiles(this);
 #else
-    auto *controls = new QHBoxLayout;
+        QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
 #endif
-    m_pauseCheck = new QCheckBox(QStringLiteral("Pause sync"), central);
-    auto *refreshButton = new QPushButton(QStringLiteral("Refresh discovery"), central);
-    auto *aboutButton = new QPushButton(QStringLiteral("Safety / About"), central);
-    controls->addWidget(m_pauseCheck);
-    controls->addStretch();
-    controls->addWidget(refreshButton);
-    controls->addWidget(aboutButton);
-    layout->addLayout(controls);
-
-    m_statusLabel = new QLabel(QStringLiteral("Starting…"), central);
-    layout->addWidget(m_statusLabel);
-    setCentralWidget(central);
-
-    connect(refreshButton, &QPushButton::clicked, this, [this] { announce(); });
-    connect(aboutButton, &QPushButton::clicked, this, [this] {
-        QMessageBox::information(this, QStringLiteral("LocalClipboard — safety"),
-            QStringLiteral("Text is sent unencrypted to discovered peers on your LAN. "
-                           "There is no pairing/authentication. Use only on a trusted private network. "
-                           "Do not copy passwords, access tokens, or other secrets while sync is enabled."));
     });
-
-    if (!m_udp->bind(QHostAddress::AnyIPv4, DiscoveryPort,
-                     QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
-        log(QStringLiteral("UDP discovery bind failed: %1").arg(m_udp->errorString()));
-    }
-    if (!m_tcpServer->listen(QHostAddress::AnyIPv4, TransferPort)) {
-        log(QStringLiteral("TCP server listen failed: %1").arg(m_tcpServer->errorString()));
-    }
-
-    connect(m_udp, &QUdpSocket::readyRead, this, &ClipboardSync::readAnnouncement);
-    connect(m_tcpServer, &QTcpServer::newConnection, this, &ClipboardSync::onNewConnection);
+    connect(m_pause, &QCheckBox::toggled, this, [this](bool paused) {
+        m_profile.paused = paused; QString error;
+        if (!m_profile.save(&error)) log(error);
+        if (m_engine) m_engine->setPaused(paused);
+        refresh();
+    });
+    connect(startup, &QCheckBox::toggled, this, [this, startup](bool enabled) {
+        QString error;
+        if (!Autostart::setEnabled(enabled, &error)) {
+            startup->blockSignals(true); startup->setChecked(m_profile.autostart); startup->blockSignals(false);
+            log("Autostart failed: " + error); return;
+        }
+        m_profile.autostart = enabled;
+        if (!m_profile.save(&error)) log(error);
+    });
 #ifndef Q_OS_ANDROID
-    connect(m_clipboard, &QClipboard::dataChanged, this, &ClipboardSync::onClipboardChanged);
-#endif
-    connect(m_announceTimer, &QTimer::timeout, this, &ClipboardSync::announce);
-    connect(m_peerTimer, &QTimer::timeout, this, &ClipboardSync::prunePeers);
-
-    m_announceTimer->start(3000);
-    m_peerTimer->start(3000);
-#ifndef Q_OS_ANDROID
-    m_lastText = m_clipboard->text();
-#endif
-    m_lastHash = currentTextHash(m_lastText);
-    announce();
-    log(QStringLiteral("Device ID: %1").arg(m_deviceId));
-    log(QStringLiteral("Listening on UDP %1 and TCP %2").arg(DiscoveryPort).arg(TransferPort));
-}
-
-ClipboardSync::~ClipboardSync() = default;
-
-QJsonObject ClipboardSync::baseMessage(const QString &type) const {
-    QJsonObject obj;
-    obj.insert(QStringLiteral("type"), type);
-    obj.insert(QStringLiteral("id"), m_deviceId);
-    obj.insert(QStringLiteral("name"), m_deviceName);
-    obj.insert(QStringLiteral("port"), static_cast<int>(TransferPort));
-    return obj;
-}
-
-void ClipboardSync::announce() {
-    if (m_quitting) return;
-    QJsonObject obj = baseMessage(QStringLiteral("hello"));
-    const QByteArray bytes = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    // Send to IPv4 broadcast. Some networks block broadcast; manual peer entry is not implemented in this MVP.
-    m_udp->writeDatagram(bytes, QHostAddress::Broadcast, DiscoveryPort);
-    // Also multicast to the local subnet multicast group for networks that pass it.
-    m_udp->writeDatagram(bytes, QHostAddress(QStringLiteral("239.255.45.71")), DiscoveryPort);
-    refreshPeers();
-}
-
-void ClipboardSync::readAnnouncement() {
-    while (m_udp->hasPendingDatagrams()) {
-        QByteArray datagram;
-        datagram.resize(static_cast<int>(m_udp->pendingDatagramSize()));
-        QHostAddress sender;
-        quint16 senderPort = 0;
-        if (m_udp->readDatagram(datagram.data(), datagram.size(), &sender, &senderPort) < 0)
-            continue;
-
-        QJsonParseError error;
-        const auto doc = QJsonDocument::fromJson(datagram, &error);
-        if (error.error != QJsonParseError::NoError || !doc.isObject()) continue;
-        const QJsonObject obj = doc.object();
-        if (obj.value(QStringLiteral("type")).toString() != QStringLiteral("hello")) continue;
-        const QString id = obj.value(QStringLiteral("id")).toString();
-        if (id.isEmpty() || id == m_deviceId) continue;
-
-        Peer peer;
-        peer.id = id;
-        peer.name = obj.value(QStringLiteral("name")).toString(QStringLiteral("Unknown device"));
-        peer.address = sender;
-        peer.port = static_cast<quint16>(obj.value(QStringLiteral("port")).toInt(TransferPort));
-        peer.lastSeenMs = m_clock.elapsed();
-        m_peers.insert(id, peer);
-        refreshPeers();
+    connect(QApplication::clipboard(), &QClipboard::dataChanged, this, [this] { sendClipboard(); });
+    QString ignored;
+    const auto initial = ClipboardPayload::capture(QApplication::clipboard()->mimeData(), &ignored);
+    if (!initial.isEmpty()) m_lastHash = ClipboardPayload::hash(initial);
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        m_tray = new QSystemTrayIcon(style()->standardIcon(QStyle::SP_FileDialogContentsView), this);
+        m_tray->setToolTip("LocalClipboard — " + profile.ownerName);
+        auto *menu = new QMenu(this);
+        menu->addAction("Open LocalClipboard", this, &ClipboardSync::showSettings);
+        auto *pause = menu->addAction("Pause synchronization"); pause->setCheckable(true); pause->setChecked(profile.paused);
+        connect(pause, &QAction::toggled, m_pause, &QCheckBox::setChecked);
+        connect(m_pause, &QCheckBox::toggled, pause, &QAction::setChecked);
+        menu->addSeparator(); menu->addAction("Quit", qApp, &QCoreApplication::quit);
+        m_tray->setContextMenu(menu);
+        connect(m_tray, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason r) {
+            if (r == QSystemTrayIcon::Trigger || r == QSystemTrayIcon::DoubleClick) showSettings();
+        });
+        m_tray->show();
     }
-}
-
-void ClipboardSync::onClipboardChanged() {
-    if (m_quitting || m_applyingRemote || m_pauseCheck->isChecked()) return;
-    const QString text = m_clipboard->text();
-    if (text == m_lastText) return;
-    m_lastText = text;
-    const QString hash = currentTextHash(text);
-    m_lastHash = hash;
-    if (text.isEmpty()) return;
-    if (text.toUtf8().size() > MaxMessageBytes) {
-        log(QStringLiteral("Clipboard text exceeds 1 MiB; not sent."));
-        return;
-    }
-    m_recentHashes.insert(hash);
-    if (m_recentHashes.size() > 128) m_recentHashes.clear();
-    broadcastText(text, hash);
-    log(QStringLiteral("Sent clipboard text (%1 characters).").arg(text.size()));
-}
-
-QString ClipboardSync::currentTextHash(const QString &text) const {
-    return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
-}
-
-void ClipboardSync::broadcastText(const QString &text, const QString &hash) {
-    const auto peers = m_peers.values();
-    for (const Peer &peer : peers) sendTextToPeer(peer, text, hash);
-}
-
-void ClipboardSync::sendTextToPeer(const Peer &peer, const QString &text, const QString &hash) {
-    QJsonObject obj = baseMessage(QStringLiteral("clipboard"));
-    obj.insert(QStringLiteral("text"), text);
-    obj.insert(QStringLiteral("hash"), hash);
-    const QByteArray json = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    if (json.size() > MaxMessageBytes) return;
-
-    auto *socket = new QTcpSocket(this);
-    connect(socket, &QTcpSocket::connected, this, [socket, json] {
-        QByteArray frame;
-        QDataStream stream(&frame, QIODevice::WriteOnly);
-        stream.setByteOrder(QDataStream::BigEndian);
-        stream << static_cast<quint32>(json.size());
-        frame.append(json);
-        socket->write(frame);
-        socket->disconnectFromHost();
+#else
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive) AndroidBridge::consumeInbox(m_profile, [this](const QJsonObject &p) { apply(p); });
     });
-    connect(socket, &QTcpSocket::errorOccurred, this, [this, socket](QAbstractSocket::SocketError) {
-        log(QStringLiteral("Could not reach peer: %1").arg(socket->errorString()));
-        socket->deleteLater();
+    auto *poll = new QTimer(this);
+    connect(poll, &QTimer::timeout, this, [this] {
+        refresh();
+        if (QApplication::applicationState() != Qt::ApplicationActive) return;
+        if (!m_pause->isChecked()) {
+            AndroidBridge::consumeInbox(m_profile, [this](const QJsonObject &p) { apply(p); });
+            AndroidBridge::consumeShares([this](const QJsonObject &p) { sendPayload(p); }, [this](const QString &e) { log(e); });
+        }
     });
-    connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
-    socket->connectToHost(peer.address, peer.port);
+    poll->start(1000);
+#endif
+    startEngine();
 }
-
-void ClipboardSync::onNewConnection() {
-    while (m_tcpServer->hasPendingConnections()) {
-        QTcpSocket *socket = m_tcpServer->nextPendingConnection();
-        connect(socket, &QTcpSocket::readyRead, this, &ClipboardSync::onClientReadyRead);
-        connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
-        socket->setProperty("clipboardFrame", QByteArray());
-        socket->setProperty("expectedBytes", 0);
-    }
+void ClipboardSync::startEngine() {
+    delete m_engine; m_engine = nullptr;
+#ifdef Q_OS_ANDROID
+    AndroidBridge::startService(m_profile.autostart);
+#else
+    m_engine = new SyncEngine(m_profile, this);
+    connect(m_engine, &SyncEngine::received, this, &ClipboardSync::apply);
+    connect(m_engine, &SyncEngine::message, this, &ClipboardSync::log);
+    connect(m_engine, &SyncEngine::peersChanged, this, &ClipboardSync::refresh);
+#endif
+    refresh();
 }
-
-void ClipboardSync::onClientReadyRead() {
-    auto *socket = qobject_cast<QTcpSocket *>(sender());
-    if (!socket) return;
-    QByteArray buffer = socket->property("clipboardFrame").toByteArray();
-    buffer.append(socket->readAll());
-
-    if (socket->property("expectedBytes").toInt() == 0) {
-        if (buffer.size() < 4) {
-            socket->setProperty("clipboardFrame", buffer);
-            return;
-        }
-        const auto *p = reinterpret_cast<const uchar *>(buffer.constData());
-        const quint32 length = (static_cast<quint32>(p[0]) << 24)
-                             | (static_cast<quint32>(p[1]) << 16)
-                             | (static_cast<quint32>(p[2]) << 8)
-                             | static_cast<quint32>(p[3]);
-        if (length == 0 || length > MaxMessageBytes) {
-            socket->disconnectFromHost();
-            return;
-        }
-        socket->setProperty("expectedBytes", static_cast<int>(length));
-        buffer.remove(0, 4);
-    }
-
-    const int expected = socket->property("expectedBytes").toInt();
-    if (expected <= 0 || buffer.size() < expected) {
-        socket->setProperty("clipboardFrame", buffer);
-        return;
-    }
-
-    const QByteArray json = buffer.left(expected);
-    QJsonParseError error;
-    const auto doc = QJsonDocument::fromJson(json, &error);
-    if (error.error == QJsonParseError::NoError && doc.isObject()) {
-        const QJsonObject obj = doc.object();
-        if (obj.value(QStringLiteral("type")).toString() == QStringLiteral("clipboard")) {
-            const QString sourceId = obj.value(QStringLiteral("id")).toString();
-            const QString text = obj.value(QStringLiteral("text")).toString();
-            const QString hash = obj.value(QStringLiteral("hash")).toString();
-            if (!sourceId.isEmpty() && sourceId != m_deviceId && !text.isEmpty()
-                && text.toUtf8().size() <= MaxMessageBytes
-                && currentTextHash(text) == hash && !m_recentHashes.contains(hash)) {
-                m_recentHashes.insert(hash);
-                if (m_recentHashes.size() > 128) m_recentHashes.clear();
-                applyRemoteText(text, hash);
-            }
-        }
-    }
-    socket->disconnectFromHost();
-}
-
-void ClipboardSync::applyRemoteText(const QString &text, const QString &hash) {
-    if (m_pauseCheck->isChecked()) return;
+void ClipboardSync::sendClipboard(bool explicitSend) {
+    if (m_applying || m_pause->isChecked()) return;
 #ifdef Q_OS_ANDROID
     if (QApplication::applicationState() != Qt::ApplicationActive) return;
 #endif
-    m_applyingRemote = true;
-    m_lastText = text;
+    QString error;
+    const QJsonObject payload = ClipboardPayload::capture(QApplication::clipboard()->mimeData(), &error);
+    if (payload.isEmpty()) { m_lastHash.clear(); if (!error.isEmpty()) log(error); return; }
+    const QString hash = ClipboardPayload::hash(payload);
+    if (!explicitSend && hash == m_lastHash) return;
     m_lastHash = hash;
-    m_clipboard->setText(text, QClipboard::Clipboard);
-    m_applyingRemote = false;
-    log(QStringLiteral("Received clipboard text (%1 characters).").arg(text.size()));
+    sendPayload(payload);
 }
-
-void ClipboardSync::prunePeers() {
-    const qint64 now = m_clock.elapsed();
-    for (auto it = m_peers.begin(); it != m_peers.end();) {
-        if (now - it->lastSeenMs > PeerTimeoutMs) it = m_peers.erase(it);
-        else ++it;
-    }
-    refreshPeers();
+void ClipboardSync::sendPayload(const QJsonObject &payload) {
+    if (m_pause->isChecked()) return;
+#ifdef Q_OS_ANDROID
+    QString error;
+    if (!AndroidBridge::queueOutgoing(m_profile, payload, &error)) log(error);
+    else log("Queued " + ClipboardPayload::description(payload));
+#else
+    if (!m_engine->send(payload)) log("No registered device is online, or synchronization is paused.");
+#endif
 }
-
-void ClipboardSync::refreshPeers() {
-    if (!m_peersList) return;
-    m_peersList->clear();
-    const qint64 now = m_clock.elapsed();
-    for (const Peer &peer : m_peers) {
-        m_peersList->addItem(QStringLiteral("%1 — %2 (seen %3 s ago)")
-            .arg(peer.name, peer.address.toString())
-            .arg(qMax<qint64>(0, (now - peer.lastSeenMs) / 1000)));
-    }
-    m_statusLabel->setText(QStringLiteral("%1 peer(s) · %2")
-        .arg(m_peers.size())
-        .arg(m_pauseCheck->isChecked() ? QStringLiteral("sync paused") : QStringLiteral("sync active")));
+void ClipboardSync::apply(const QJsonObject &payload) {
+    if (m_pause->isChecked()) return;
+    const QString hash = ClipboardPayload::hash(payload);
+#ifndef Q_OS_ANDROID
+    if (hash == m_lastHash) return;
+#endif
+    QString error;
+    QMimeData *mime = ClipboardPayload::materialize(payload, QDir(Profile::dataDirectory()).filePath("received"), &error);
+    if (!mime) { log(error); return; }
+    m_applying = true;
+    m_lastHash = hash;
+#ifdef Q_OS_ANDROID
+    if (mime->hasUrls()) {
+        AndroidBridge::copyFiles(mime->urls()); delete mime;
+    } else QApplication::clipboard()->setMimeData(mime);
+#else
+    QApplication::clipboard()->setMimeData(mime);
+    const auto normalized = ClipboardPayload::capture(QApplication::clipboard()->mimeData(), &error);
+    if (!normalized.isEmpty()) m_lastHash = ClipboardPayload::hash(normalized);
+#endif
+    m_applying = false;
+    log("Applied " + ClipboardPayload::description(payload));
 }
-
-void ClipboardSync::log(const QString &message) {
-    statusBar()->showMessage(message, 8000);
+void ClipboardSync::refresh() {
+    m_peers->clear();
+#ifdef Q_OS_ANDROID
+    m_peers->addItems(AndroidBridge::peerDescriptions(m_profile));
+#else
+    if (m_engine) m_peers->addItems(m_engine->peerDescriptions());
+#endif
+    m_status->setText(QStringLiteral("%1 registered device(s) online · %2").arg(m_peers->count())
+        .arg(m_pause->isChecked() ? "paused" : "active"));
 }
-
+void ClipboardSync::log(const QString &message) { statusBar()->showMessage(message, 15000); }
+bool ClipboardSync::hasTray() const { return m_tray && m_tray->isVisible(); }
+void ClipboardSync::showSettings() { showNormal(); raise(); activateWindow(); }
 void ClipboardSync::closeEvent(QCloseEvent *event) {
-    m_quitting = true;
+#ifdef Q_OS_ANDROID
     QMainWindow::closeEvent(event);
+#else
+    hide(); event->ignore();
+#endif
 }

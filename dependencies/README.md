@@ -5,7 +5,9 @@ Desktop macOS: install Homebrew and Xcode Command Line Tools, then
 `./dependencies/macos.sh`. These scripts install packages and may require sudo.
 
 Other Linux distributions: C++17 compiler, CMake >=3.21, Ninja (optional),
-Qt 6 Core, Network, Widgets and platform plugins. Windows: MSVC and Qt 6 desktop.
+Qt 6 Core, Network, Widgets, Test and platform plugins. Windows: MSVC, Qt 6 desktop
+and NSIS (e.g. `choco install nsis`). Linux packaging uses `dpkg-dev`; macOS uses
+`macdeployqt`, Python 3, `pkgbuild` and `productbuild` from the development tools.
 
 Android on Linux/macOS additionally requires JDK 17, Android SDK command-line tools,
 platform/build tools and an NDK compatible with your Qt version. Install matching
@@ -29,9 +31,10 @@ not include the Android kit. The installers do not accept licenses automatically
 ## Android — Qt 6
 
 Android uses the shared C++/Qt Widgets application in `src/`, built from the root
-CMake project. The previous Kotlin/Gradle application has been replaced. Qt generates
-the Android manifest, QtActivity, Gradle project and APK deployment configuration.
-Network permissions and package name are configured on the CMake target.
+CMake project. Qt generates the Gradle project and APK deployment configuration.
+The `android/` directory supplies a custom manifest, QtActivity subclass for Share
+intents and FileProvider clipboard URIs, and a separate QtService with reboot
+registration. The target is SDK 35 with minimum SDK 26; CMake uses this package source.
 
 After installing the dependencies above, run:
 
@@ -40,8 +43,10 @@ After installing the dependencies above, run:
 ./scripts/package -t apk
 ```
 
-Keep the app open on the same trusted Wi-Fi as the desktop peers. Tap **Send current
-clipboard** to send Android text; incoming text is applied while the app is active.
-Background clipboard synchronization is not supported. Release APKs require signing;
-CI builds an installable debug APK. Device testing is required to verify clipboard
-and LAN behavior on your Android version.
+Register the phone with your personal profile and permit notifications. The service
+receives text/images/files in the background; open the notification to apply the
+latest item. Android 10+ restricts reading the clipboard to the focused app, so tap
+**Send current clipboard** while open or use **Share → LocalClipboard** from another
+app. Release APKs require signing; CI builds an installable debug APK and an adb
+installer ZIP. Device testing is required to verify clipboard, LAN, reboot and
+manufacturer battery-management behavior on your Android version.

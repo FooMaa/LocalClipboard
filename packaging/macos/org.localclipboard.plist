@@ -3,14 +3,17 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>org.localclipboard.daemon</string>
+    <string>org.localclipboard</string>
     <key>ProgramArguments</key>
     <array>
         <string>/Applications/LocalClipboard.app/Contents/MacOS/LocalClipboard</string>
+        <string>--background</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <dict><key>SuccessfulExit</key><false/></dict>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
 </dict>
 </plist>

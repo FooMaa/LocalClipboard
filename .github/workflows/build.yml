@@ -1,8 +1,9 @@
-name: Build all targets
+name: Build four packages and four installers
 on: [push, pull_request, workflow_dispatch]
 jobs:
   desktop:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -18,29 +19,22 @@ jobs:
           cache: true
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
-      - name: Build
+      - name: Install Windows installer tools
+        if: runner.os == 'Windows'
+        run: choco install nsis --yes --no-progress
+      - name: Build application, package and installer
         shell: bash
         run: ./scripts/build -t desktop
-      - name: Package Linux
-        if: runner.os == 'Linux'
-        run: |
-          ./scripts/package -t deb -b build_desktop
-          ./scripts/package -t sh -b build_desktop
-      - name: Deploy Windows
-        if: runner.os == 'Windows'
+      - name: Test profiles, encryption and clipboard transfer
         shell: bash
-        run: windeployqt --release build_desktop/Release/LocalClipboard.exe
-      - name: Deploy macOS
-        if: runner.os == 'macOS'
-        run: macdeployqt build_desktop/LocalClipboard.app -dmg
+        run: |
+          cmake --build build_desktop --config Release --parallel 4 --target clipboard_tests app_tests
+          ctest --test-dir build_desktop -C Release --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ runner.os }}
+          name: LocalClipboard-${{ runner.os }}
           if-no-files-found: error
-          path: |
-            dist/*
-            build_desktop/Release/
-            build_desktop/*.dmg
+          path: dist/LocalClipboard-*
   android:
     runs-on: ubuntu-22.04
     steps:
@@ -51,7 +45,6 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v4
         with:
-          # The legacy 'tools' package is no longer served by Google.
           packages: 'platform-tools'
           log-accepted-android-sdk-licenses: 'false'
       - name: Install Android SDK and NDK
@@ -62,18 +55,42 @@ jobs:
           target: android
           arch: android_arm64_v8a
           cache: true
-      - name: Build Qt APK
+      - name: Build APK and installer
         shell: bash
         run: |
-          # The Android install action also installs matching desktop tools
-          # and exports QT_HOST_PATH from the kit's target_qt.conf.
           export QT_ANDROID_ROOT="$QT_ROOT_DIR"
           : "${QT_HOST_PATH:?Qt installer did not provide the desktop host kit}"
           export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125"
           ./scripts/build -t android -c Debug
-          ./scripts/package -t apk
       - uses: actions/upload-artifact@v4
         with:
-          name: android-apk
+          name: LocalClipboard-Android
           if-no-files-found: error
-          path: dist/*.apk
+          path: dist/LocalClipboard-android-*
+  distribution:
+    needs: [desktop, android]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: LocalClipboard-*
+          path: dist
+          merge-multiple: true
+      - name: Verify all eight outputs
+        shell: bash
+        run: |
+          test "$(find dist -type f | wc -l)" -eq 8
+          test -f dist/LocalClipboard-linux-amd64.deb
+          test -f dist/LocalClipboard-linux-amd64-installer.sh
+          test -f dist/LocalClipboard-macos-package.zip
+          test -f dist/LocalClipboard-macos-installer.pkg
+          test -f dist/LocalClipboard-windows-package.zip
+          test -f dist/LocalClipboard-windows-installer.exe
+          test -f dist/LocalClipboard-android-package.apk
+          test -f dist/LocalClipboard-android-installer.zip
+          (cd dist && sha256sum LocalClipboard-* > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalClipboard-all-platforms
+          path: dist/*
+          if-no-files-found: error

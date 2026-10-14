@@ -1,13 +1,13 @@
 [Unit]
-Description=LocalClipboard LAN Synchronization Daemon
-After=network.target network-online.target
+Description=LocalClipboard personal clipboard (user session)
+PartOf=graphical-session.target
+After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/localclipboard
+ExecStart=/usr/bin/localclipboard --background
 Restart=on-failure
 RestartSec=5s
-Environment=DISPLAY=:0
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
