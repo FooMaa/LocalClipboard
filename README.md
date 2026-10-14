@@ -22,6 +22,20 @@ transfer it privately. It is excluded from automatic clipboard synchronization.
 If a code is exposed or a device is lost, create a new profile and reconnect your
 remaining devices. Individual device revocation and cloud accounts are not provided.
 
+### Connect using a QR code
+
+On a registered device, open **Connect device…** to display your profile's QR code.
+On the new device, tap **Scan QR code** in registration, allow camera access and
+scan the code, then confirm **Register**. This works on Android, iOS and all three
+desktop platforms. An already registered device can use **Change profile…** to join.
+Without a camera, use **Save QR image…** and **Read QR from image…**, or enter the
+connection code manually. The QR contains the same private profile secret as the
+connection code; share it only with your own devices. Other QR formats are ignored.
+
+Android and iOS forms fill the available screen. Scroll the registration and
+settings pages with a swipe; opening the keyboard keeps the focused input visible.
+Mobile choice fields open a separate list with large touch targets.
+
 ## Background operation and autostart
 
 On desktop and Android, autostart is enabled by default at registration and can be toggled in settings.
@@ -126,7 +140,7 @@ synchronization running; use **Quit LocalClipboard** to stop it.
 
 ## Build: five packages and five installers
 
-CMake 3.21.1+, a C++17 compiler, Qt 6 Core/Network/Widgets/Test and native packaging
+CMake 3.21.1+, a C++17 compiler, Qt 6 Core/Network/Widgets/Multimedia/Test and native packaging
 tools are required. Monocypher 4.0.2 is vendored; no crypto runtime download is needed.
 
 ```sh
@@ -223,6 +237,14 @@ for regeneration after changing the SVG.
 
 Код `LC2.…` содержит случайный секрет длиной 256 бит. Обращайтесь с ним как с паролем и передавайте его приватно. Он исключён из автоматической синхронизации буфера. Если код стал известен посторонним или устройство потеряно, создайте новый профиль и подключите к нему оставшиеся устройства. Отзыв доступа отдельного устройства и облачные учётные записи не предусмотрены.
 
+### Подключение по QR-коду
+
+На зарегистрированном устройстве откройте **«Подключить устройство…»**, чтобы показать QR-код личного профиля. На новом устройстве нажмите **«Сканировать QR-код»** в мастере регистрации, разрешите доступ к камере, отсканируйте код и подтвердите регистрацию. Это доступно на Android, iOS, macOS, Windows и Linux. Уже зарегистрированное устройство может подключиться к другому профилю через **«Сменить профиль…»**.
+
+Если камеры нет, используйте **«Сохранить QR-код…»** и **«Считать QR из изображения…»** либо введите код вручную. QR содержит тот же секрет профиля, что и код подключения: передавайте его только своим устройствам. QR-коды других форматов игнорируются.
+
+На Android и iOS формы занимают доступный экран. Страницы регистрации и настроек прокручиваются свайпом; при открытии клавиатуры поле ввода остаётся в видимой области. Варианты в выпадающих полях выбираются в отдельном списке с крупными строками.
+
 ### Фоновая работа и автозапуск
 
 На компьютерах и Android автозапуск включается по умолчанию при регистрации; его можно изменить в настройках. На компьютере синхронизация работает в **графическом сеансе вошедшего пользователя**, где доступен буфер обмена. Она не запускается до входа как служба root или системная служба.
@@ -268,7 +290,7 @@ for regeneration after changing the SVG.
 
 ### Сборка: пять пакетов и пять установщиков
 
-Нужны CMake 3.21.1 или новее, компилятор C++17, модули Qt 6 Core/Network/Widgets/Test и инструменты упаковки соответствующей платформы. Monocypher 4.0.2 включён в исходники; отдельно скачивать криптографическую библиотеку для запуска не требуется.
+Нужны CMake 3.21.1 или новее, компилятор C++17, модули Qt 6 Core/Network/Widgets/Multimedia/Test и инструменты упаковки соответствующей платформы. Monocypher 4.0.2 включён в исходники; отдельно скачивать криптографическую библиотеку для запуска не требуется.
 
 ```sh
 ./scripts/build -t macos

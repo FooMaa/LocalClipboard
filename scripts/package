@@ -39,6 +39,8 @@ case "$format" in
         cp "$build_dir/LocalClipboard" "$stage/root/usr/bin/localclipboard"
         cp "$ROOT/packaging/linux/localclipboard.desktop" "$stage/root/usr/share/applications/"
         cp "$ROOT/third_party/monocypher/LICENCE.md" "$stage/root/usr/share/doc/localclipboard/monocypher-license"
+        cp "$ROOT/third_party/zxing/LICENSE" "$stage/root/usr/share/doc/localclipboard/zxing-license"
+        cp "$ROOT/third_party/zxing/NOTICES.txt" "$stage/root/usr/share/doc/localclipboard/zxing-notices"
         mkdir -p "$stage/root/debian"
         cat > "$stage/root/debian/control" <<'CONTROL'
 Source: localclipboard
@@ -60,7 +62,7 @@ Section: utils
 Priority: optional
 Architecture: $arch
 Maintainer: LocalClipboard <dev@localclipboard.org>
-Depends: $runtime_depends, qt6-qpa-plugins, policykit-1
+Depends: $runtime_depends, qt6-qpa-plugins, gstreamer1.0-plugins-good, policykit-1
 Description: Personal encrypted LAN clipboard synchronization
  Text, photos and files. Register separate personal profiles on first launch.
 CONTROL
@@ -107,12 +109,13 @@ INSTALLER
         for plugin in platforms/libqcocoa.dylib styles/libqmacstyle.dylib \
             imageformats/libqjpeg.dylib imageformats/libqgif.dylib imageformats/libqico.dylib \
             imageformats/libqicns.dylib imageformats/libqtga.dylib imageformats/libqwbmp.dylib \
-            imageformats/libqtiff.dylib imageformats/libqwebp.dylib; do
+            imageformats/libqtiff.dylib imageformats/libqwebp.dylib multimedia/libdarwinmediaplugin.dylib; do
             [[ -f "$plugin_root/$plugin" ]] || continue
             mkdir -p "$deployed_app/Contents/PlugIns/$(dirname "$plugin")"
             cp "$plugin_root/$plugin" "$deployed_app/Contents/PlugIns/$plugin"
             deploy_args+=("-executable=$deployed_app/Contents/PlugIns/$plugin")
         done
+        [[ -f "$deployed_app/Contents/PlugIns/multimedia/libdarwinmediaplugin.dylib" ]] || fail "Qt macOS camera backend missing"
         [[ -f "$deployed_app/Contents/PlugIns/platforms/libqcocoa.dylib" ]] || fail "Qt Cocoa platform plugin missing"
         deploy_args+=("-libpath=$(qtpaths --query QT_INSTALL_LIBS)")
         macdeployqt "$stage/root/Applications/LocalClipboard.app" "${deploy_args[@]}"
@@ -120,6 +123,8 @@ INSTALLER
         printf '[Paths]\nPlugins=PlugIns\n' > "$deployed_app/Contents/Resources/qt.conf"
         mkdir -p "$stage/root/Applications/LocalClipboard.app/Contents/Resources/licenses"
         cp "$ROOT/third_party/monocypher/LICENCE.md" "$stage/root/Applications/LocalClipboard.app/Contents/Resources/licenses/monocypher.txt"
+        cp "$ROOT/third_party/zxing/LICENSE" "$deployed_app/Contents/Resources/licenses/zxing.txt"
+        cp "$ROOT/third_party/zxing/NOTICES.txt" "$deployed_app/Contents/Resources/licenses/zxing-notices.txt"
         if [[ -n ${MACOS_APP_SIGN_IDENTITY:-} ]]; then
             codesign --force --deep --options runtime --timestamp --entitlements "$ROOT/packaging/macos/entitlements.plist" --sign "$MACOS_APP_SIGN_IDENTITY" "$stage/root/Applications/LocalClipboard.app"
         else
@@ -175,6 +180,8 @@ PY
         mkdir -p "$deploy/licenses"
         cp "$binary" "$deploy/LocalClipboard.exe"
         cp "$ROOT/third_party/monocypher/LICENCE.md" "$deploy/licenses/monocypher.txt"
+        cp "$ROOT/third_party/zxing/LICENSE" "$deploy/licenses/zxing.txt"
+        cp "$ROOT/third_party/zxing/NOTICES.txt" "$deploy/licenses/zxing-notices.txt"
         windeployqt --release --no-compiler-runtime --no-translations "$deploy/LocalClipboard.exe"
         # App-local MSVC runtime avoids requiring an administrator to install VC redist.
         : "${VCToolsRedistDir:?Run packaging from the MSVC developer environment (VCToolsRedistDir missing)}"
@@ -212,6 +219,8 @@ PY
         cp "$ROOT/packaging/android/install.sh" "$ROOT/packaging/android/install.ps1" "$ROOT/packaging/common/language.sh" "$ROOT/packaging/android/README.md" "$stage/android-installer/"
         chmod +x "$stage/android-installer/"*.sh
         cp "$ROOT/third_party/monocypher/LICENCE.md" "$stage/android-installer/monocypher-license.txt"
+        cp "$ROOT/third_party/zxing/LICENSE" "$stage/android-installer/zxing-license.txt"
+        cp "$ROOT/third_party/zxing/NOTICES.txt" "$stage/android-installer/zxing-notices.txt"
         (cd "$stage/android-installer" && zip -qr "$ROOT/dist/LocalClipboard-android-installer.zip" .)
         ;;
     *) usage >&2; exit 1 ;;

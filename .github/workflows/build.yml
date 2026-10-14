@@ -16,6 +16,7 @@ jobs:
         if: runner.os != 'Linux'
         with:
           version: '6.8.3'
+          modules: 'qtmultimedia'
           cache: true
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
@@ -72,6 +73,7 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
+          modules: 'qtmultimedia'
           target: android
           arch: android_arm64_v8a
           cache: true
@@ -94,6 +96,7 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
+          modules: 'qtmultimedia'
           target: ios
           arch: ios
           cache: true

@@ -44,8 +44,9 @@
 #endif
 
 ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWindow(parent), m_profile(profile) {
+    Ui::prepareWindow(this);
     setWindowTitle("LocalClipboard — " + m_profile.ownerName);
-    resize(580, 760);
+    if (!Ui::touchMode()) resize(580, 760);
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
     layout->setContentsMargins(24, 24, 24, 24); layout->setSpacing(12);
@@ -99,8 +100,9 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
     connect(uninstall, &QPushButton::clicked, this, [this] { Uninstall::launch(this); });
 #endif
     layout->addStretch();
+    layout->setSizeConstraint(QLayout::SetMinimumSize);
     auto *scroll = new QScrollArea(this); scroll->setWidgetResizable(true);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); scroll->setWidget(central); setCentralWidget(scroll);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); scroll->setWidget(central); setCentralWidget(scroll); Ui::enableTouchScroll(scroll);
     connect(&I18n::instance(), &I18n::languageChanged, this, &ClipboardSync::refresh);
     connect(send, &QPushButton::clicked, this, [this] { sendClipboard(true); });
     connect(quit, &QPushButton::clicked, this, [] {
@@ -317,7 +319,10 @@ bool ClipboardSync::hasTray() const {
     return m_tray && m_tray->isVisible();
 #endif
 }
-void ClipboardSync::showSettings() { showNormal(); raise(); activateWindow(); }
+void ClipboardSync::showSettings() {
+    if (Ui::touchMode()) Ui::showWindow(this); else showNormal();
+    raise(); activateWindow();
+}
 void ClipboardSync::closeEvent(QCloseEvent *event) {
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QMainWindow::closeEvent(event);

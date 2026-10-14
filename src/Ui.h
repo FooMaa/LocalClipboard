@@ -5,8 +5,15 @@ class QLabel;
 class QPushButton;
 class QComboBox;
 class QCheckBox;
+class QScrollArea;
 namespace Ui {
 void initialize();
+bool touchMode();
+void prepareWindow(QWidget *widget);
+void showWindow(QWidget *widget);
+void enableTouchScroll(QScrollArea *scroll);
+QComboBox *comboBox(QWidget *parent);
+
 QLabel *label(const char *text, QWidget *parent, const char *role = nullptr);
 QPushButton *button(const char *text, QWidget *parent, bool primary = false);
 QCheckBox *checkBox(const char *text, QWidget *parent);

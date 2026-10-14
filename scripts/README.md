@@ -17,6 +17,8 @@ Packaging is included in the build. Default directories are `build_TARGET`;
 `desktop` selects the host OS and is the default target. `-n` skips packaging.
 Additional CMake options follow `--`, e.g. `-- -DCMAKE_PREFIX_PATH=/path/to/Qt`.
 `BUILD_TESTING` defaults on for desktop; Qt Test is required unless disabled.
+Install the Qt Multimedia module in every target kit for QR camera scanning.
+ZXing-C++ is built from the included sources without network downloads.
 
 To package an existing build without recompiling:
 
@@ -169,3 +171,5 @@ export QT_HOST_PATH="$HOME/Qt/6.8.3/macos"
 NSIS обнаруживает сохранённый каталог установки Windows и передаёт удаление установленному деинсталлятору, включая диалог необязательного стирания данных. Linux проверяет состояние DEB перед предложением переустановки, удаления или отмены. Android проверяет выбранное устройство через adb; iOS запрашивает список приложений через devicectl, если задан `IOS_DEVICE_ID`. Удаление на телефоне требует подтверждения `DELETE`. Скрипты для командной строки принимают `LC_ACTION` для явного выбора действия; PowerShell для Android принимает `-Action`. Переустановка сохраняет данные. Всё это включено в существующую цель `installers`: число результатов остаётся равным пяти пакетам и пяти установщикам.
 
 Команда `python3 tests/PackagingTests.py` проверяет параметры устройств, подтверждение и защиту путей удаления macOS, не удаляя реальную установку и не обращаясь к устройству. Тесты Qt проверяют сохранение языка, ошибочную регистрацию, размещение элементов на экранах шириной 360 и 520 пикселей с обычным и увеличенным текстом, команду завершения экземпляра через IPC и фоновую синхронизацию.
+
+Для сканирования QR камерой установите Qt Multimedia в каждом комплекте Qt для целевой платформы. ZXing-C++ собирается из включённых исходников без загрузок из сети.

@@ -100,6 +100,15 @@ Set `IOS_DEVICE_ID` and your actual `IOS_BUNDLE_ID` to enable installation detec
 and removal. Removal needs Xcode devicectl but does not need Qt or a new build.
 Without a device ID installation proceeds through Xcode.
 
+
+## QR connection
+
+On your registered device, open **Connect device…**. In the phone's registration
+wizard, tap **Scan QR code**, allow camera access, scan and confirm **Register**.
+You can also scan a QR shown on this phone from another device. Use **Read QR from
+image…** if a camera is unavailable. Keep the QR private: it grants access to your
+personal profile. For an already registered phone, open **Change profile…** first.
+
 ---
 
 ## Русская версия
@@ -160,3 +169,7 @@ export IOS_DEVICE_ID=YOUR_DEVICE_ID # См.: xcrun devicectl list devices
 Выберите «Русский» или English в скрипте установщика или мастере регистрации приложения. В приложении также можно изменить язык позже. Команда `LC_LANGUAGE=ru ./install.sh` выбирает русский без запроса в терминале.
 
 Для управления установленным приложением снова запустите тот же `install.sh`: выберите переустановку, удаление или отмену. Удаление требует ввода `DELETE` и стирает локальные данные приложения на этом устройстве. Переустановка сохраняет профиль. Штатное удаление приложения средствами ОС также работает. Задайте `IOS_DEVICE_ID` и фактический `IOS_BUNDLE_ID`, чтобы включить обнаружение установленного приложения и удаление. Для удаления нужен devicectl из Xcode, но не нужны Qt или новая сборка. Без идентификатора устройства установка продолжается через Xcode.
+
+### Подключение по QR-коду
+
+На зарегистрированном устройстве откройте **«Подключить устройство…»**. В мастере регистрации телефона нажмите **«Сканировать QR-код»**, разрешите доступ к камере, отсканируйте код и подтвердите регистрацию. QR можно показать и на телефоне, чтобы считать его с другого устройства. Если камера недоступна, выберите **«Считать QR из изображения…»**. Не передавайте QR посторонним: он даёт доступ к личному профилю. На уже зарегистрированном телефоне сначала откройте **«Сменить профиль…»**.

@@ -11,12 +11,47 @@
 #include <QSignalBlocker>
 #include <QHBoxLayout>
 #include <QStyle>
+#include <QListWidget>
+#include <QLineEdit>
+#include <QInputMethod>
+#include <QScroller>
+#include <QTimer>
+#include <QPointer>
+#include <QKeyEvent>
 
 namespace {
+class TouchComboBox final : public QComboBox {
+public:
+    using QComboBox::QComboBox;
+    void showPopup() override {
+        if (!Ui::touchMode()) { QComboBox::showPopup(); return; }
+        qApp->inputMethod()->hide();
+        QDialog dialog(window()); dialog.setObjectName("touchChoices");
+        Ui::prepareWindow(&dialog); dialog.setWindowTitle(accessibleName());
+        auto *layout = new QVBoxLayout(&dialog);
+        auto *choices = new QListWidget(&dialog); choices->setObjectName("touchChoiceList");
+        choices->setWordWrap(true); choices->setSpacing(6);
+        for (int index = 0; index < count(); ++index) {
+            auto *item = new QListWidgetItem(itemText(index), choices);
+            item->setSizeHint(QSize(0, qMax(56, fontMetrics().height() * 2 + 16)));
+            if (!(model()->flags(model()->index(index, modelColumn())) & Qt::ItemIsEnabled))
+                item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+        }
+        choices->setCurrentRow(currentIndex()); layout->addWidget(choices, 1);
+        auto *cancel = Ui::button("Cancel", &dialog); layout->addWidget(cancel);
+        QObject::connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+        QObject::connect(choices, &QListWidget::itemClicked, &dialog, [&](QListWidgetItem *item) {
+            setCurrentIndex(choices->row(item)); dialog.accept();
+        });
+        dialog.exec();
+        QComboBox::hidePopup();
+    }
+};
 class WrappingButton final : public QPushButton {
 public:
     WrappingButton(const char *source, QWidget *parent, bool primary) : QPushButton(parent) {
         setProperty("primary", primary);
+        if (Ui::touchMode()) setAutoDefault(false);
         m_label = Ui::label(source, this); m_label->setAlignment(Qt::AlignCenter); m_label->setAttribute(Qt::WA_TransparentForMouseEvents);
         auto *row = new QHBoxLayout(this); row->setContentsMargins(14, 10, 14, 10); row->addWidget(m_label);
         QSizePolicy policy(QSizePolicy::Preferred, QSizePolicy::Preferred); policy.setHeightForWidth(true); setSizePolicy(policy);
@@ -59,6 +94,43 @@ template <typename Widget> void bind(Widget *widget, const char *source) {
     if (key.isEmpty()) return;
     QObject::connect(&I18n::instance(), &I18n::languageChanged, widget, [widget, key] { widget->setText(I18n::text(key)); });
 }
+}
+bool Ui::touchMode() {
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    return true;
+#else
+    return qApp->property("touchUi").toBool();
+#endif
+}
+void Ui::prepareWindow(QWidget *widget) {
+    if (!touchMode()) return;
+    widget->setWindowFlags((widget->windowFlags() & ~Qt::WindowType_Mask) | Qt::Window);
+    widget->setWindowState(Qt::WindowMaximized);
+}
+void Ui::showWindow(QWidget *widget) {
+    if (touchMode()) widget->showMaximized(); else widget->show();
+}
+void Ui::enableTouchScroll(QScrollArea *scroll) {
+    if (!touchMode()) return;
+    QScroller::grabGesture(scroll->viewport(), QScroller::TouchGesture);
+    // Bring the focused editor back into view after Android resizes for the IME.
+    QObject::connect(qApp, &QApplication::focusChanged, scroll, [scroll](QWidget *, QWidget *focused) {
+        if (!focused || !scroll->isAncestorOf(focused)) return;
+        QPointer<QWidget> target(focused);
+        QTimer::singleShot(250, scroll, [scroll, target] {
+            if (target) scroll->ensureWidgetVisible(target, 12, 24);
+        });
+    });
+    QObject::connect(qApp->inputMethod(), &QInputMethod::keyboardRectangleChanged, scroll, [scroll] {
+        QPointer<QWidget> focused(qApp->focusWidget());
+        if (focused && scroll->isAncestorOf(focused))
+            QTimer::singleShot(0, scroll, [scroll, focused] { if (focused) scroll->ensureWidgetVisible(focused, 12, 24); });
+    });
+}
+QComboBox *Ui::comboBox(QWidget *parent) {
+    auto *combo = new TouchComboBox(parent);
+    if (touchMode()) combo->setMinimumHeight(48);
+    return combo;
 }
 void Ui::initialize() {
     QApplication::setStyle("Fusion");
@@ -113,11 +185,13 @@ QCheckBox *Ui::checkBox(const char *text, QWidget *parent) {
     return new WrappingCheckBox(text, parent);
 }
 QComboBox *Ui::languagePicker(QWidget *parent) {
-    auto *picker = new QComboBox(parent); picker->setObjectName("languagePicker");
+    auto *picker = comboBox(parent); picker->setObjectName("languagePicker");
+    picker->setAccessibleName(I18n::text("Language"));
     picker->addItem(QString::fromUtf8("Русский"), "ru"); picker->addItem("English", "en");
     picker->setCurrentIndex(I18n::language() == "ru" ? 0 : 1);
     QObject::connect(picker, &QComboBox::currentIndexChanged, picker, [picker](int index) { I18n::setLanguage(picker->itemData(index).toString()); });
     QObject::connect(&I18n::instance(), &I18n::languageChanged, picker, [picker] {
+        picker->setAccessibleName(I18n::text("Language"));
         const QSignalBlocker blocker(picker); picker->setCurrentIndex(I18n::language() == "ru" ? 0 : 1);
     });
     return picker;
@@ -127,6 +201,7 @@ void Ui::title(QWidget *widget, const char *text) {
     QObject::connect(&I18n::instance(), &I18n::languageChanged, widget, [widget, key] { widget->setWindowTitle(I18n::text(key)); });
 }
 Ui::Form Ui::form(QDialog *dialog, const char *heading, const char *description) {
+    prepareWindow(dialog);
     auto *outer = new QVBoxLayout(dialog); outer->setContentsMargins(0, 0, 0, 16); outer->setSpacing(0);
     auto *scroll = new QScrollArea(dialog); scroll->setWidgetResizable(true); scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *content = new QWidget(scroll);
@@ -134,12 +209,23 @@ Ui::Form Ui::form(QDialog *dialog, const char *heading, const char *description)
     body->addWidget(languagePicker(content), 0, Qt::AlignRight);
     body->addWidget(label(heading, content, "heading")); body->addWidget(label(description, content, "muted"));
     body->setSizeConstraint(QLayout::SetMinimumSize);
-    scroll->setWidget(content); outer->addWidget(scroll, 1);
+    scroll->setWidget(content); enableTouchScroll(scroll); outer->addWidget(scroll, 1);
     auto *footer = new QVBoxLayout; footer->setContentsMargins(24, 12, 24, 0); outer->addLayout(footer);
-    const QSize available = dialog->screen()->availableGeometry().size(); dialog->resize(qMin(520, available.width()), qMin(660, available.height()));
+    const QSize available = dialog->screen()->availableGeometry().size();
+    if (!touchMode()) dialog->resize(qMin(520, available.width()), qMin(660, available.height()));
     return {body, footer};
 }
 void Ui::field(QVBoxLayout *layout, const char *name, QWidget *input) {
     auto *caption = label(name, input->parentWidget(), "section"); caption->setBuddy(input);
     layout->addWidget(caption); layout->addWidget(input); input->setMinimumWidth(0);
+    input->setAccessibleName(caption->text());
+    QObject::connect(&I18n::instance(), &I18n::languageChanged, input, [input, caption] { input->setAccessibleName(caption->text()); });
+    if (touchMode()) {
+        input->setMinimumHeight(48);
+        if (auto *editor = qobject_cast<QLineEdit *>(input)) {
+            editor->setClearButtonEnabled(!editor->isReadOnly());
+            editor->setInputMethodHints(Qt::ImhNoPredictiveText);
+            QObject::connect(editor, &QLineEdit::returnPressed, editor, [editor] { QKeyEvent next(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier); QApplication::sendEvent(editor, &next); });
+        }
+    }
 }

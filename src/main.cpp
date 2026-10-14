@@ -143,6 +143,6 @@ int main(int argc, char *argv[]) {
         }
     });
 #endif
-    if (!app.arguments().contains("--background") && !app.arguments().contains("--session-start")) window.show();
+    if (!app.arguments().contains("--background") && !app.arguments().contains("--session-start")) Ui::showWindow(&window);
     return app.exec();
 }

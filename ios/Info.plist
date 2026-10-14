@@ -31,4 +31,5 @@
         <key>LSHandlerRank</key><string>Alternate</string>
         <key>LSItemContentTypes</key><array><string>public.data</string><string>public.content</string></array>
     </dict></array>
+<key>NSCameraUsageDescription</key><string>Scan a LocalClipboard connection QR code. Сканирование QR-кода подключения LocalClipboard.</string>
 </dict></plist>

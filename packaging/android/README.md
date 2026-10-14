@@ -20,6 +20,15 @@ uninstall or cancel. Removal requires `DELETE` and deletes this device's local
 app data. Reinstall preserves the profile. The OS's Delete App action also works.
 Use `-Serial` / `-Language ru` / `-Action uninstall` with `install.ps1` on Windows.
 
+
+## QR connection
+
+On your registered device, open **Connect device…**. In the phone's registration
+wizard, tap **Scan QR code**, allow camera access, scan and confirm **Register**.
+You can also scan a QR shown on this phone from another device. Use **Read QR from
+image…** if a camera is unavailable. Keep the QR private: it grants access to your
+personal profile. For an already registered phone, open **Change profile…** first.
+
 ---
 
 ## Русская версия
@@ -35,3 +44,7 @@ Use `-Serial` / `-Language ru` / `-Action uninstall` with `install.ps1` on Windo
 Выберите «Русский» или English в скрипте установщика или мастере регистрации приложения. В приложении также можно изменить язык позже. Команда `LC_LANGUAGE=ru ./install.sh` выбирает русский без запроса в терминале.
 
 Для управления установленным приложением снова запустите тот же `install.sh`: выберите переустановку, удаление или отмену. Удаление требует ввода `DELETE` и стирает локальные данные приложения на этом устройстве. Переустановка сохраняет профиль. Штатное удаление приложения средствами ОС также работает. На Windows используйте параметры `-Serial`, `-Language ru` и `-Action uninstall` со скриптом `install.ps1`.
+
+### Подключение по QR-коду
+
+На зарегистрированном устройстве откройте **«Подключить устройство…»**. В мастере регистрации телефона нажмите **«Сканировать QR-код»**, разрешите доступ к камере, отсканируйте код и подтвердите регистрацию. QR можно показать и на телефоне, чтобы считать его с другого устройства. Если камера недоступна, выберите **«Считать QR из изображения…»**. Не передавайте QR посторонним: он даёт доступ к личному профилю. На уже зарегистрированном телефоне сначала откройте **«Сменить профиль…»**.

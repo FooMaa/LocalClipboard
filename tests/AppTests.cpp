@@ -3,6 +3,11 @@
 #include "Registration.h"
 #include "I18n.h"
 #include "Ui.h"
+#include "QrCode.h"
+#include <QListWidget>
+#include <QScroller>
+#include <QScrollBar>
+#include <QTransform>
 #include "Uninstall.h"
 #include <QApplication>
 #include <QClipboard>
@@ -95,6 +100,75 @@ private slots:
                     QVERIFY2(label->height() >= label->heightForWidth(label->width()), qPrintable(label->text()));
         }
     }
+    void connectionQrRoundTripAndInvalidInput() {
+        Profile profile; profile.create();
+        const QString invitation = profile.invitation();
+        const QImage qr = QrCode::encodeInvitation(invitation); QVERIFY(!qr.isNull());
+        QCOMPARE(QrCode::decodeInvitation(qr), invitation);
+        QCOMPARE(QrCode::decodeInvitation(qr.transformed(QTransform().rotate(90))), invitation);
+        QImage inverted = qr; inverted.invertPixels();
+        QCOMPARE(QrCode::decodeInvitation(inverted), invitation);
+        QCOMPARE(QrCode::decodeInvitation(qr.scaled(256, 256)), invitation);
+        QVERIFY(QrCode::encodeInvitation("https://example.com").isNull());
+        QVERIFY(QrCode::encodeInvitation("LC2.short").isNull());
+        QImage blank(320, 320, QImage::Format_RGB32); blank.fill(Qt::white);
+        QVERIFY(QrCode::decodeInvitation(blank).isEmpty());
+        Profile joined; QVERIFY(joined.join(QrCode::decodeInvitation(qr)));
+        QCOMPARE(joined.groupId(), profile.groupId());
+    }
+    void invitationShowsScannableProfile() {
+        Profile profile; profile.create();
+        QString decoded, code;
+        QTimer::singleShot(0, [&] {
+            auto *dialog = qobject_cast<QDialog *>(qApp->activeModalWidget());
+            if (!dialog) return;
+            auto *image = dialog->findChild<QLabel *>("invitationQr");
+            auto *input = dialog->findChild<QLineEdit *>();
+            if (image) decoded = QrCode::decodeInvitation(image->pixmap().toImage());
+            if (input) code = input->text();
+            dialog->reject();
+        });
+        showInvitation(profile);
+        QCOMPARE(decoded, profile.invitation()); QCOMPARE(code, decoded);
+    }
+    void mobileChoicesSelectAndFormsScroll() {
+        qApp->setProperty("touchUi", true);
+        RegistrationDialog dialog(Profile::load());
+        const bool maximizedForm = dialog.windowState().testFlag(Qt::WindowMaximized);
+        auto *mode = dialog.findChild<QComboBox *>("profileMode");
+        bool chose = false;
+        QTimer::singleShot(0, [&] {
+            auto *picker = qobject_cast<QDialog *>(qApp->activeModalWidget());
+            auto *list = picker ? picker->findChild<QListWidget *>("touchChoiceList") : nullptr;
+            if (!list) { if (picker) picker->reject(); return; }
+            chose = true;
+            const QRect target = list->visualItemRect(list->item(1));
+            QTest::mouseClick(list->viewport(), Qt::LeftButton, Qt::NoModifier, target.center());
+        });
+        mode->showPopup();
+        const int selected = mode->currentIndex();
+        const bool codeEnabled = dialog.findChild<QLineEdit *>("connectionCode")->isEnabled();
+        auto *scroll = dialog.findChild<QScrollArea *>();
+        const bool gesture = QScroller::hasScroller(scroll->viewport());
+        dialog.setWindowState(Qt::WindowNoState); dialog.resize(360, 400); dialog.show(); QTest::qWait(30);
+        const bool canScroll = scroll->verticalScrollBar()->maximum() > 0;
+        const bool clearButton = dialog.findChild<QLineEdit *>("ownerName")->isClearButtonEnabled();
+        auto *owner = dialog.findChild<QLineEdit *>("ownerName"); owner->setFocus();
+        QTest::keyClick(owner, Qt::Key_Return);
+        const bool advancedFocus = qApp->focusWidget() != owner;
+        const bool noSubmit = dialog.findChild<QLabel *>("registrationError")->text().isEmpty();
+        Profile profile = Profile::load(); profile.create();
+        ClipboardSync main(profile); Ui::showWindow(&main); QTest::qWait(10);
+        const bool maximizedMain = main.windowState().testFlag(Qt::WindowMaximized);
+        main.setWindowState(Qt::WindowNoState); main.resize(360, 400); QTest::qWait(20);
+        auto *mainScroll = qobject_cast<QScrollArea *>(main.centralWidget());
+        const bool mainCanScroll = mainScroll && QScroller::hasScroller(mainScroll->viewport()) && mainScroll->verticalScrollBar()->maximum() > 0;
+        qApp->setProperty("touchUi", false);
+        QVERIFY(chose); QCOMPARE(selected, 1); QVERIFY(codeEnabled);
+        QVERIFY(gesture); QVERIFY(canScroll); QVERIFY(clearButton);
+        QVERIFY(maximizedForm); QVERIFY(maximizedMain); QVERIFY(mainCanScroll);
+        QVERIFY(advancedFocus); QVERIFY(noSubmit);
+    }
     void quitCommandTargetsThisUsersInstance() {
         QLocalServer::removeServer(Uninstall::ipcName());
         QLocalServer server; server.setSocketOptions(QLocalServer::UserAccessOption);
@@ -142,6 +216,8 @@ private slots:
         QVERIFY(engine->port());
         window.showSettings();
         QVERIFY(window.isVisible());
+        window.showMinimized(); window.showSettings();
+        QVERIFY(!window.isMinimized());
         const QJsonObject payload{{"kind", "text"}, {"text", "copy again"}, {"html", ""}};
         engine->received(payload);
         QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("copy again"));

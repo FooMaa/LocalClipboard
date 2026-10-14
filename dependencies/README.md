@@ -4,8 +4,11 @@ Desktop Linux (Debian/Ubuntu): `./dependencies/linux.sh`.
 Desktop macOS: install Homebrew and Xcode Command Line Tools, then
 `./dependencies/macos.sh`. These scripts install packages and may require sudo.
 
+Install the Qt Multimedia module for every target kit, including Android and iOS.
+QR encoding/decoding uses the bundled ZXing-C++ sources; no QR library download is needed.
+
 Other Linux distributions: C++17 compiler, CMake >=3.21.1, Ninja (optional),
-Qt 6 Core, Network, Widgets, Test and platform plugins. Windows: MSVC, Qt 6 desktop
+Qt 6 Core, Network, Widgets, Multimedia, Test and platform plugins. Windows: MSVC, Qt 6 desktop
 and NSIS (e.g. `choco install nsis`). Linux packaging uses `dpkg-dev`; macOS uses
 `macdeployqt`, Python 3, `pkgbuild` and `productbuild` from the development tools.
 
@@ -76,7 +79,9 @@ See [installation and device verification](../packaging/ios/README.md).
 
 Для компьютера с Linux (Debian/Ubuntu): `./dependencies/linux.sh`. Для macOS установите Homebrew и Xcode Command Line Tools, затем выполните `./dependencies/macos.sh`. Эти скрипты устанавливают пакеты и могут потребовать sudo.
 
-Для других дистрибутивов Linux нужны компилятор C++17, CMake 3.21.1 или новее, Ninja при желании, Qt 6 Core, Network, Widgets, Test и плагины платформы. Для Windows нужны MSVC, Qt 6 для компьютеров и NSIS, например `choco install nsis`. Упаковка Linux использует `dpkg-dev`; macOS — `macdeployqt`, Python 3, `pkgbuild` и `productbuild` из инструментов разработки.
+Установите модуль Qt Multimedia для каждого используемого комплекта, включая Android и iOS. Для генерации и распознавания QR используются включённые исходники ZXing-C++; отдельно скачивать библиотеку QR не нужно.
+
+Для других дистрибутивов Linux нужны компилятор C++17, CMake 3.21.1 или новее, Ninja при желании, Qt 6 Core, Network, Widgets, Multimedia, Test и плагины платформы. Для Windows нужны MSVC, Qt 6 для компьютеров и NSIS, например `choco install nsis`. Упаковка Linux использует `dpkg-dev`; macOS — `macdeployqt`, Python 3, `pkgbuild` и `productbuild` из инструментов разработки.
 
 Для Android на Linux или macOS дополнительно нужны JDK 17, инструменты командной строки Android SDK, инструменты платформы и сборки, а также NDK, совместимый с вашей версией Qt. Установите комплекты Qt для компьютера с инструментами сборки и Qt для Android через установщик Qt. Для закреплённого в CI Qt 6.8.3 используются SDK 35, build-tools 35.0.0 и NDK 26.1.10909125. Если Qt из пакетного менеджера компьютера используется вместе с Qt для Android, их версии должны совпадать.
 
