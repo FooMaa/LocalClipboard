@@ -122,6 +122,9 @@ removal-path guards without removing an installation or contacting a device.
 Qt app tests cover language persistence without clearing registration inputs, invalid
 registration, shared layouts at 320 / 412 / 1000 pixels in both languages, QR pairing,
 switch input, instance quit IPC and background synchronization.
+Diagnostic screenshot export runs separately on macOS CI with
+`LOCALCLIPBOARD_TEST_SCREENSHOTS=1`. It waits for rendered frames and verifies image
+capture and saving; layout and interaction tests run on every desktop host.
 `python3 scripts/check-readmes` checks all README language sections, matching
 commands and links, and rejects English prose left after the Russian divider.
 
@@ -196,5 +199,7 @@ export QT_HOST_PATH="$HOME/Qt/6.11.2/macos"
 NSIS обнаруживает сохранённый каталог установки Windows и передаёт удаление установленному деинсталлятору, включая диалог необязательного стирания данных. Linux проверяет состояние DEB перед предложением переустановки, удаления или отмены. Android проверяет выбранное устройство через adb; iOS запрашивает список приложений через devicectl, если задан `IOS_DEVICE_ID`. Удаление на телефоне требует подтверждения `DELETE`. Скрипты для командной строки принимают `LC_ACTION` для явного выбора действия; PowerShell для Android принимает `-Action`. Переустановка сохраняет данные. Всё это включено в существующую цель `installers`: число результатов остаётся равным пяти пакетам и пяти установщикам.
 
 Команда `python3 tests/PackagingTests.py` проверяет параметры устройств, подтверждение и защиту путей удаления macOS, не удаляя реальную установку и не обращаясь к устройству. Тесты Qt проверяют сохранение языка без очистки полей регистрации, ошибочную регистрацию, общий интерфейс на экранах шириной 320, 412 и 1000 пикселей на обоих языках, подключение по QR, ввод переключателей, команду завершения экземпляра через IPC и фоновую синхронизацию.
+
+Экспорт диагностических скриншотов запускается отдельно на macOS в CI с `LOCALCLIPBOARD_TEST_SCREENSHOTS=1`. Он ожидает отрисованные кадры и проверяет захват и сохранение изображений; проверки разметки и ввода выполняются на каждой ОС компьютера.
 
 Команда `python3 scripts/check-readmes` проверяет языковые разделы всех README, соответствие команд и ссылок, а также выявляет английские абзацы после разделителя русской версии.

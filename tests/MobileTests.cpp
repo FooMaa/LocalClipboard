@@ -21,6 +21,7 @@
 #include <QTest>
 #include <QTimer>
 #include <QUuid>
+#include <memory>
 
 class MobileTests final : public QObject {
     Q_OBJECT
@@ -68,17 +69,42 @@ private slots:
                         QCOMPARE(format.toInt(), 0);
                 }
             }
-            if ((width == 412 || (width == 1000 && platform == "osx")) && language == "ru" && QString(page) != "pair") {
-                const auto image = window->grabWindow();
-                QVERIFY(!image.isNull());
-                image.save(QDir::current().filePath(QString("interface-%1-%2-%3-ru.png").arg(platform, page).arg(width)));
-            }
         }
         for (const auto &warning : warnings) {
             const auto errors = qvariant_cast<QList<QQmlError>>(warning.first());
             for (const auto &error : errors) qWarning().noquote() << error.toString();
         }
         QCOMPARE(warnings.size(), 0);
+    }
+    void exportInterfaceScreenshots() {
+        // Diagnostic images are exercised separately on the CI capture host.
+        // Layout, translation and input checks run on every host without capture.
+        if (!qEnvironmentVariableIsSet("LOCALCLIPBOARD_TEST_SCREENSHOTS"))
+            QSKIP("Set LOCALCLIPBOARD_TEST_SCREENSHOTS=1 to export diagnostic images.");
+        I18n::setLanguage("ru");
+        for (const auto &platform : {QStringLiteral("android"), QStringLiteral("ios"), QStringLiteral("osx")}) {
+            for (int width : {412, 1000}) {
+                if (width == 1000 && platform != "osx") continue;
+                AppController controller(profile()); QQmlApplicationEngine engine;
+                configureAppEngine(engine, controller);
+                engine.load(QUrl("qrc:/app/Main.qml"));
+                QVERIFY(!engine.rootObjects().isEmpty());
+                auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first()); QVERIFY(window);
+                window->setProperty("platformName", platform);
+                window->resize(width, 740); window->show();
+                QVERIFY(QTest::qWaitForWindowExposed(window));
+                // Pairing images contain the profile secret and must never be exported.
+                for (const auto &page : {"home", "settings", "register", "files"}) {
+                    QSignalSpy rendered(window, &QQuickWindow::frameSwapped);
+                    window->setProperty("page", page); window->update();
+                    QTRY_VERIFY_WITH_TIMEOUT(!rendered.isEmpty(), 2000);
+                    QImage image;
+                    QTRY_VERIFY_WITH_TIMEOUT(!(image = window->grabWindow()).isNull(), 2000);
+                    QVERIFY(image.save(QDir::current().filePath(
+                        QString("interface-%1-%2-%3-ru.png").arg(platform, page).arg(width))));
+                }
+            }
+        }
     }
     void qrRegistrationImportsTheKeyAndAddressesTogether() {
         const auto source = profile();
@@ -123,6 +149,26 @@ private slots:
         QSignalSpy changed(application.controller(), &AppController::stateChanged);
         engine->peersChanged(); engine->peersChanged();
         QCOMPARE(changed.count(), 0);
+    }
+    void windowDestructionDoesNotCallBackIntoItsOwner_data() {
+        QTest::addColumn<bool>("destroyWindowFirst");
+        QTest::newRow("engine-destroys-window") << false;
+        QTest::newRow("window-destroyed-before-owner") << true;
+    }
+    void windowDestructionDoesNotCallBackIntoItsOwner() {
+        QFETCH(bool, destroyWindowFirst);
+        auto application = std::make_unique<AppWindow>(profile());
+        auto *window = application->window(); QVERIFY(window);
+        QPointer<QObject> guard(window);
+        window->show(); QTest::qWait(10);
+        if (destroyWindowFirst) {
+            delete window;
+            QVERIFY(guard.isNull()); QVERIFY(!application->window());
+            application->showSettings(); // A previously destroyed window is harmless.
+        }
+        application.reset();
+        QVERIFY(guard.isNull());
+        QCoreApplication::processEvents();
     }
     void desktopWindowCanStartHiddenAndKeepsReceivingAfterClose() {
         AppWindow application(profile(), true);

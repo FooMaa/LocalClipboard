@@ -59,6 +59,13 @@ AppWindow::AppWindow(const Profile &profile, bool background) : m_controller(pro
 #endif
 }
 AppWindow::~AppWindow() {
+    // QWindow emits events after the QQuickWindow part has been destroyed.
+    // Stop callbacks before the engine starts tearing down its root objects.
+    if (m_window) {
+        m_window->removeEventFilter(this);
+        QObject::disconnect(m_window, nullptr, this, nullptr);
+    }
+    m_window.clear();
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     if (m_tray) m_tray->setContextMenu(nullptr);
 #endif
@@ -71,7 +78,7 @@ void AppWindow::showSettings() {
 }
 bool AppWindow::eventFilter(QObject *object, QEvent *event) {
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
-    if (object == m_window && event->type() == QEvent::Close) {
+    if (event->type() == QEvent::Close && object == m_window) {
         static_cast<QCloseEvent *>(event)->ignore();
         m_window->hide(); return true;
     }

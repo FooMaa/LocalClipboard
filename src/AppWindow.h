@@ -18,8 +18,9 @@ public:
     bool eventFilter(QObject *object, QEvent *event) override;
 private:
     AppController m_controller;
-    QQmlApplicationEngine m_engine;
+    // The guard must outlive the engine that owns and destroys the QML window.
     QPointer<QQuickWindow> m_window;
+    QQmlApplicationEngine m_engine;
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     std::unique_ptr<QMenu> m_menu;
     QSystemTrayIcon *m_tray = nullptr;

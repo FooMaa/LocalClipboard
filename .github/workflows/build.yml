@@ -61,6 +61,8 @@ jobs:
       - name: Test Android interface layouts, translation and scrolling
         if: runner.os == 'macOS'
         shell: bash
+        env:
+          LOCALCLIPBOARD_TEST_SCREENSHOTS: '1'
         run: |
           cmake -S . -B build_mobile_ui -DCMAKE_BUILD_TYPE=Release -DLOCALCLIPBOARD_MOBILE_PREVIEW=ON
           cmake --build build_mobile_ui --parallel 4 --target mobile_tests
@@ -74,6 +76,7 @@ jobs:
           path: |
             build_desktop/Testing/Temporary/*.log
             build_mobile_ui/Testing/Temporary/*.log
+            build_mobile_ui/interface-*.png
             build_mobile_ui/CMakeFiles/CMakeConfigureLog.yaml
       - name: Test installer arguments and removal guards
         if: runner.os != 'Windows'
