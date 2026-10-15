@@ -186,8 +186,11 @@ if(BUILD_TESTING AND NOT ANDROID AND NOT IOS)
     qt_add_resources(mobile_tests mobile_ui PREFIX "/app" BASE qml FILES ${LOCALCLIPBOARD_QML_FILES})
     qt_add_resources(mobile_tests test_uninstall PREFIX "/uninstall" BASE packaging/macos FILES packaging/macos/uninstall.sh)
     qt_add_resources(mobile_tests test_icons PREFIX "/icons" BASE assets/icons FILES assets/icons/localclipboard-64.png)
-    add_test(NAME mobile_interface COMMAND mobile_tests)
-    set_tests_properties(mobile_interface PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+    # Keep a QtTest report even when Windows routes console output to a debugger.
+    add_test(NAME mobile_interface COMMAND mobile_tests
+        -v1 -o -,txt -o mobile-tests.txt,txt)
+    set_tests_properties(mobile_interface PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QT_FORCE_STDERR_LOGGING=1")
 endif()
 if(LOCALCLIPBOARD_FUZZING)
     add_executable(protocol_fuzz tests/ProtocolFuzz.cpp)

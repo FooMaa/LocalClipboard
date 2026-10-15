@@ -57,7 +57,15 @@ jobs:
         shell: bash
         run: |
           cmake --build build_desktop --config Release --parallel 4 --target clipboard_tests app_tests mobile_tests
-          ctest --test-dir build_desktop -C Release --output-on-failure
+          if ctest --test-dir build_desktop -C Release --output-on-failure; then
+            exit 0
+          else
+            test_status=$?
+            if [[ -f build_desktop/mobile-tests.txt ]]; then
+              cat build_desktop/mobile-tests.txt
+            fi
+            exit "$test_status"
+          fi
       - name: Test Android interface layouts, translation and scrolling
         if: runner.os == 'macOS'
         shell: bash
@@ -75,7 +83,9 @@ jobs:
           if-no-files-found: ignore
           path: |
             build_desktop/Testing/Temporary/*.log
+            build_desktop/mobile-tests.txt
             build_mobile_ui/Testing/Temporary/*.log
+            build_mobile_ui/mobile-tests.txt
             build_mobile_ui/interface-*.png
             build_mobile_ui/CMakeFiles/CMakeConfigureLog.yaml
       - name: Test installer arguments and removal guards
