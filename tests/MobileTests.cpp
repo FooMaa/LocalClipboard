@@ -6,10 +6,8 @@
 #include "QrCode.h"
 #include "SyncEngine.h"
 #include "FileStorage.h"
-#include "SecureProtocol.h"
 #include "DeviceAccess.h"
 #include "LocalHistory.h"
-#include <QUdpSocket>
 #include <QClipboard>
 #include <QApplication>
 #include <QDir>
@@ -285,11 +283,12 @@ private slots:
         auto phone = profile(); QVERIFY(phone.join(owner.invitation()));
         AppController controller(owner);
         auto *engine = controller.findChild<SyncEngine *>(); QVERIFY(engine);
-        QUdpSocket discovery;
-        // Discovery sockets share the port with other app instances. Broadcast
-        // reaches every listener; localhost unicast can be consumed by another one.
-        const auto announcement = SecureProtocol::announcement(phone, 45872);
-        QCOMPARE(discovery.writeDatagram(announcement, QHostAddress::Broadcast, engine->discoveryPort()), qint64(announcement.size()));
+        // Introduce a real peer through the controller's exact TCP endpoint.
+        // Broadcast may be unavailable on CI, and shared UDP ports can deliver
+        // localhost datagrams to another running app instance.
+        SyncEngine mobile(phone, nullptr, 0, 0);
+        QVERIFY(mobile.port()); QVERIFY(engine->port());
+        mobile.contactTcp(QHostAddress::LocalHost, engine->port());
         QTRY_COMPARE(controller.devices().size(), 1);
         QVERIFY(controller.administrator()); QCOMPARE(controller.accessState(), QStringLiteral("approved"));
         QVERIFY(!controller.devices().first().toMap().value("approved").toBool());
