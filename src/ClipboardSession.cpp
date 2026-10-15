@@ -31,7 +31,7 @@ ClipboardSession::ClipboardSession(const Profile &profile, QObject *parent)
         if (state == Qt::ApplicationActive) {
             auto pending = std::move(m_pendingApply); m_pendingApply = {};
             if (pending) pending();
-            pollAndroidInbox();
+            if (AndroidBridge::takeCopyRequest()) copyReceivedClipboard();
         }
     });
     auto *poll = new QTimer(this);
@@ -39,7 +39,7 @@ ClipboardSession::ClipboardSession(const Profile &profile, QObject *parent)
         if (QApplication::applicationState() != Qt::ApplicationActive) return;
         refresh();
         if (m_profile.registered() && !m_profile.paused) {
-            pollAndroidInbox();
+            if (AndroidBridge::takeCopyRequest()) copyReceivedClipboard();
             const quint64 revision = m_revision;
             if (m_sharedPayload.isEmpty() && !m_loadingShares) m_loadingShares = AndroidBridge::consumeShares(this, [this, revision](const QJsonObject &p) {
                 m_loadingShares = false;
@@ -141,8 +141,24 @@ bool ClipboardSession::receiving() const {
     return m_engine && m_engine->port();
 #endif
 }
+bool ClipboardSession::pendingClipboard() const {
+#ifdef Q_OS_ANDROID
+    return AndroidBridge::hasPendingInbox();
+#else
+    return false;
+#endif
+}
+void ClipboardSession::copyReceivedClipboard() {
+#ifdef Q_OS_ANDROID
+    if (m_profile.paused) { report("Resume synchronization to copy received content."); return; }
+    if (!pendingClipboard()) { report("No received content is waiting."); return; }
+    pollAndroidInbox();
+#endif
+}
 void ClipboardSession::refresh() {
 #ifdef Q_OS_ANDROID
+    const bool pending = pendingClipboard();
+    if (pending != m_pendingInbox) { m_pendingInbox = pending; emit stateChanged(); }
     if (m_loadingPeers) return;
     m_loadingPeers = true;
     const Profile profile = m_profile;

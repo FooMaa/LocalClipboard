@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+[[ $# == 3 ]] || { echo 'Usage: package-macos-installer INSTALL_PKG REMOVE_PKG OUTPUT_DMG' >&2; exit 1; }
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+app="$stage/image/LocalClipboard Installer.app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+swiftc -parse-as-library -O -target "$(uname -m)-apple-macos13.0" "$ROOT/packaging/macos/Installer.swift" \
+    -o "$app/Contents/MacOS/LocalClipboardInstaller"
+if [[ -n ${MACOS_INSTALLER_SIGN_IDENTITY:-} ]]; then
+    productsign --sign "$MACOS_INSTALLER_SIGN_IDENTITY" "$1" "$app/Contents/Resources/Install.pkg"
+    productsign --sign "$MACOS_INSTALLER_SIGN_IDENTITY" "$2" "$app/Contents/Resources/Remove.pkg"
+else
+    cp "$1" "$app/Contents/Resources/Install.pkg"
+    cp "$2" "$app/Contents/Resources/Remove.pkg"
+fi
+cp "$ROOT/assets/icons/localclipboard.icns" "$app/Contents/Resources/"
+python3 - "$app/Contents/Info.plist" "$ROOT/CMakeLists.txt" <<'PY'
+import plistlib, re, sys
+from pathlib import Path
+version = re.search(r'project\(LocalClipboard VERSION ([\d.]+)', Path(sys.argv[2]).read_text()).group(1)
+with open(sys.argv[1], 'wb') as stream:
+    plistlib.dump({'CFBundleIdentifier': 'org.localclipboard.installer', 'CFBundleName': 'LocalClipboard Installer',
+                  'CFBundleExecutable': 'LocalClipboardInstaller', 'CFBundlePackageType': 'APPL',
+                  'CFBundleVersion': version, 'CFBundleShortVersionString': version,
+                  'CFBundleIconFile': 'localclipboard.icns', 'LSMinimumSystemVersion': '13.0',
+                  'NSHighResolutionCapable': True}, stream)
+PY
+if [[ -n ${MACOS_APP_SIGN_IDENTITY:-} ]]; then
+    codesign --force --options runtime --timestamp --sign "$MACOS_APP_SIGN_IDENTITY" "$app"
+else
+    codesign --force --sign - "$app"
+fi
+codesign --verify --strict "$app"
+hdiutil create -quiet -ov -format UDZO -volname 'LocalClipboard Installer' -srcfolder "$stage/image" "$3"

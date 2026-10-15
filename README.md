@@ -34,11 +34,13 @@ connection code; share it only with your own devices. Other QR formats are ignor
 
 Android and iOS forms fill the available screen. Scroll the registration and
 settings pages with a swipe; opening the keyboard keeps the focused input visible.
-Android uses Qt Quick with GPU rendering, inertial scrolling, large touch controls
-and explicit choices instead of combo boxes. File preparation runs on workers; the
-background service stays in a separate process. Its QR scanner uses a native camera
+All five platforms use Qt Quick with inertial scrolling and explicit choices instead of combo boxes.
+Wide desktop windows have a sidebar, hover feedback and keyboard shortcuts;
+phones have bottom navigation. File preparation runs on workers; the
+Android background service stays in a separate process. Android's QR scanner uses a native camera
 preview with decoding off the UI thread; images can also be selected.
-On iOS, choice fields open a separate list with large touch targets.
+QR pairing fills in the profile key and local IPv4 addresses together on every platform
+after registration is confirmed. Legacy `LC2.…` codes still work; enter addresses manually for them.
 
 ## Background operation and autostart
 
@@ -72,19 +74,22 @@ foreground-service controls to stop its background work.
 **Android 10+ does not permit ordinary background apps to read the clipboard.**
 Open the app and press **Send current clipboard**, or use **Share → LocalClipboard**
 from a gallery, file manager or another app. Received items are queued in private
-storage; tap their notification / open the app to apply them to the clipboard. Photos
+storage; tap **Copy** in the notification or **Copy received clipboard** in the app.
+Opening the app alone does not replace your clipboard. Enable banners in
+**Settings → Notification settings**; Android and Do Not Disturb control their visibility. Photos
 and files are exposed as read-only content URIs through FileProvider, so other apps
 can paste them without storage-wide permissions. Whether an Android app accepts
 file/image clipboard URIs depends on that app.
 
-On iOS, register the same profile, then enter the computer's local IPv4 address in
-**Network settings** and allow **Local Network** access. The updated desktop/Android
+On iOS, scan the computer's QR to fill in the profile and local IPv4 addresses,
+and allow **Local Network** access. With an old connection code, enter the IP in
+**Network settings**. The updated desktop/Android
 app replies directly, so no restricted broadcast entitlement is needed. Keep the
 phone app open to receive. **Open in / Copy to LocalClipboard** imports documents
 from apps that offer that action; arbitrary text sharing uses the clipboard button.
 Files selected from **Send files / photos** or imported from another app are queued
-for the active personal profile. **Open received files** provides Share / Save,
-retry and deletion of local copies. See the [iOS setup guide](packaging/ios/README.md).
+for the active personal profile. The **Files** tab lists received copies for opening or deletion.
+To retry imported content, select the source files again in Photos / Files. See the [iOS setup guide](packaging/ios/README.md).
 
 ## Clipboard formats
 
@@ -100,7 +105,7 @@ The combined raw-content limit is **32 MiB per transfer**. Folders and symbolic 
 are not transferred; archive a folder first. Cut/move operations are received as
 copies. Unsafe paths and duplicate filenames are rejected; nothing is executed or
 opened automatically. Received files stay in the application's private `received`
-directory; **Open received files** lets you access them. They are not automatically
+directory; the **Files** tab lets you access them. They are not automatically
 deleted while another app may still need to paste them, so remove old files manually.
 There is no transfer history, resumable streaming or delivery acknowledgement yet.
 Desktop copies made while all registered peers are offline are not sent later;
@@ -109,18 +114,15 @@ Android's latest explicit outgoing item waits for a peer for up to ten minutes.
 ## Language and removal
 
 Choose **Русский / English** in the registration wizard. You can change it later
-at the top of the app without changing your profile. `--language ru` or
+in Settings without changing your profile. `--language ru` or
 `--language en` selects the initial language for desktop / iOS launches.
 The Windows installer has a language dialog; shell / Android installers prompt
 for a language and also accept `LC_LANGUAGE=ru` or `LC_LANGUAGE=en`.
-The macOS PKG welcome page follows the macOS language; its registration wizard
-opens after installation and lets you explicitly choose either language.
+The macOS DMG contains a bilingual installer with an explicit language selector.
 
 Run the same installer again to manage an existing installation:
 
-- **macOS:** open the same `.pkg`. On the action page select **Remove LocalClipboard**
-  to uninstall instead of reinstalling. The app and current user's autostart are
-  removed; profile and received files are kept. No separate removal app is installed.
+- **macOS:** open the DMG and run **LocalClipboard Installer**. Choose Install/reinstall or Uninstall with radio buttons. Both actions preserve your profile and files. Administrator authorization is requested only when applying the chosen action.
 - **Windows:** the installer detects the existing installation and offers
   **Reinstall** or **Uninstall**. Installed apps removal also remains available.
 - **Debian/Ubuntu:** the shell installer detects the installed DEB and offers
@@ -132,21 +134,22 @@ Run the same installer again to manage an existing installation:
   Removal requires `DELETE` and works without the Qt kit or a new build.
   Without a device ID the script opens the Xcode installation flow.
 
-Desktop installer removal preserves personal data. Windows removal and the app's
-**Uninstall…** dialog also offer **Erase my local data**. On Android and iOS,
+Desktop installer removal preserves personal data by default. Windows removal uses
+radio buttons to keep or erase data; keeping it is the default. The app's
+**Uninstall…** dialog also offers **Erase my local data**. On Android and iOS,
 removing the app deletes its local data. Other devices keep their profiles.
 macOS installer receipts may remain; they contain package metadata, not clipboard
 content. Linux/Windows native package removal outside our wizard keeps user data.
 
-Forms scroll when needed, wrap explanatory text, and keep their action buttons
-outside the scrolling content. Closing the desktop app window still leaves
+Application pages scroll when needed and wrap explanatory text. The macOS installer
+keeps its primary action outside the scrolling content. Closing the desktop app window still leaves
 synchronization running; use **Quit LocalClipboard** to stop it.
 
 ## Build: five packages and five installers
 
-CMake 3.21.1+, a C++17 compiler, Qt 6 Core/Network/Widgets/Multimedia/Concurrent/Test
-and native packaging tools are required. Android also needs Qt Declarative
-(Quick/QuickControls2). CI pins Qt 6.11.2 for macOS, Windows, Android and iOS;
+CMake 3.21.1+, a C++17 compiler, Qt 6 Core/Network/Widgets/Concurrent, Qt Declarative
+(Quick/QuickControls2), and native packaging tools are required on every platform.
+Desktop tests need Qt Test; desktop and iOS also need Qt Multimedia. Android uses native Camera2. CI pins Qt 6.11.2 for macOS, Windows, Android and iOS;
 supported mobile OS versions are Android 9+ and iOS 17+.
 Linux compatibility builds use the distribution Qt package; review its security
 backports before distributing it. Monocypher 4.0.3 is vendored.
@@ -166,7 +169,7 @@ corresponding host. `-n` builds only the app. With a configured CMake build, use
 | Platform | Application package | Installer |
 | --- | --- | --- |
 | Linux (Debian/Ubuntu) | `LocalClipboard-linux-amd64.deb` | `LocalClipboard-linux-amd64-installer.sh` |
-| macOS | `LocalClipboard-macos-package.zip` (app bundle) | `LocalClipboard-macos-installer.pkg` |
+| macOS | `LocalClipboard-macos-package.zip` (app bundle) | `LocalClipboard-macos-installer.dmg` |
 | Windows | `LocalClipboard-windows-package.zip` | `LocalClipboard-windows-installer.exe` (NSIS) |
 | Android | `LocalClipboard-android-package.apk` | `LocalClipboard-android-installer.zip` (APK + adb installation/registration launch scripts) |
 | iOS/iPadOS | `LocalClipboard-ios-package.zip` (arm64 device `.app`) | `LocalClipboard-ios-installer.zip` (source + Xcode build/sign/install script) |
@@ -261,7 +264,9 @@ for regeneration after changing the SVG.
 
 Если камеры нет, используйте **«Сохранить QR-код…»** и **«Считать QR из изображения…»** либо введите код вручную. QR содержит тот же секрет профиля, что и код подключения: передавайте его только своим устройствам. QR-коды других форматов игнорируются.
 
-На Android и iOS формы занимают доступный экран. Страницы регистрации и настроек прокручиваются свайпом; при открытии клавиатуры поле ввода остаётся в видимой области. На Android используются крупные кнопки выбора вместо комбобоксов. QR-сканер использует нативный предпросмотр камеры и распознавание в рабочем потоке; также можно выбрать изображение. На iOS варианты выбираются в отдельном списке с крупными строками.
+На Android и iOS формы занимают доступный экран. Страницы регистрации и настроек прокручиваются свайпом; при открытии клавиатуры поле ввода остаётся в видимой области. Все пять платформ используют Qt Quick с инерционной прокруткой и явным выбором вместо комбобоксов. В широком окне компьютера есть боковая навигация, реакция на наведение и сочетания клавиш; на телефонах — нижняя навигация. Подготовка файлов выполняется в рабочих потоках, а фоновая служба Android работает в отдельном процессе. Сканер Android использует нативный предпросмотр камеры с распознаванием вне потока интерфейса; также можно выбрать изображение.
+
+На всех платформах QR-регистрация заполняет ключ профиля и локальные IPv4-адреса вместе после подтверждения регистрации. Старые коды `LC2.…` поддерживаются; для них адреса указываются вручную.
 
 ### Фоновая работа и автозапуск
 
@@ -275,9 +280,9 @@ for regeneration after changing the SVG.
 
 Повторное открытие приложения на компьютере показывает окно уже работающего экземпляра. Для остановки выберите завершение LocalClipboard в настройках или выход в меню трея. Если трея нет, снова откройте приложение через меню приложений. Android также предоставляет системные средства остановки служб переднего плана.
 
-**Android 10+ запрещает обычным фоновым приложениям читать буфер обмена.** Откройте приложение и отправьте текущий буфер либо выберите **«Поделиться → LocalClipboard»** в галерее, файловом менеджере или другом приложении. Полученное содержимое сохраняется в очереди приватного хранилища; нажмите на уведомление или откройте приложение, чтобы поместить его в буфер. Фото и файлы доступны через FileProvider в виде URI содержимого только для чтения: другие приложения могут вставлять их без разрешения на доступ ко всему хранилищу. Поддержка файлов и изображений из таких URI зависит от принимающего приложения Android.
+**Android 10+ запрещает обычным фоновым приложениям читать буфер обмена.** Откройте приложение и отправьте текущий буфер либо выберите **«Поделиться → LocalClipboard»** в галерее, файловом менеджере или другом приложении. Полученное содержимое сохраняется в очереди приватного хранилища; нажмите **«Скопировать»** в уведомлении или **«Скопировать полученный буфер»** в приложении. Простое открытие приложения не заменяет буфер. Включите баннеры в **«Настройки → Настройки уведомлений»**; их видимость зависит от Android и режима «Не беспокоить». Фото и файлы доступны через FileProvider в виде URI содержимого только для чтения: другие приложения могут вставлять их без разрешения на доступ ко всему хранилищу. Поддержка файлов и изображений из таких URI зависит от принимающего приложения Android.
 
-На iOS зарегистрируйте тот же профиль, затем укажите локальный IPv4-адрес компьютера в настройках сети и разрешите доступ к **«Локальной сети»**. Обновлённое приложение на компьютере или Android отвечает напрямую, поэтому ограниченное разрешение на широковещательную передачу не нужно. Для приёма оставляйте приложение на телефоне открытым. Действие **«Открыть в / Скопировать в LocalClipboard»** импортирует документы из приложений, которые его предлагают; для произвольного текста используется кнопка отправки буфера. Файлы из окна отправки файлов и фотографий или из другого приложения попадают в очередь активного личного профиля. В просмотре полученных файлов доступны отправка через системное меню, сохранение, повторная отправка и удаление локальных копий. См. [инструкцию для iOS](packaging/ios/README.md#русская-версия).
+На iOS отсканируйте QR компьютера, чтобы заполнить профиль и локальные IPv4-адреса, и разрешите доступ к **«Локальной сети»**. При использовании старого кода подключения укажите IP вручную в настройках сети. Обновлённое приложение на компьютере или Android отвечает напрямую, поэтому ограниченное разрешение на широковещательную передачу не нужно. Для приёма оставляйте приложение на телефоне открытым. Действие **«Открыть в / Скопировать в LocalClipboard»** импортирует документы из приложений, которые его предлагают; для произвольного текста используется кнопка отправки буфера. Файлы из окна отправки файлов и фотографий или из другого приложения попадают в очередь активного личного профиля. Вкладка **«Файлы»** показывает полученные копии для открытия или удаления. Для повторной отправки импортированного содержимого снова выберите исходные файлы в «Фото» или «Файлах». См. [инструкцию для iOS](packaging/ios/README.md#русская-версия).
 
 ### Форматы буфера обмена
 
@@ -286,29 +291,29 @@ for regeneration after changing the SVG.
 - До 32 файлов за одну передачу, включая фото, видео и документы. Передаётся содержимое файлов, которое сохраняется локально и помещается в буфер принимающего устройства. Linux также предоставляет форматы копирования GNOME/KDE; Windows использует операцию копирования.
 - Отправка файлов и фотографий позволяет выбрать их в системном окне, без предварительного помещения в буфер.
 
-Общий предел исходного содержимого — **32 МиБ на передачу**. Папки и символические ссылки не передаются: предварительно упакуйте папку в архив. Операции вырезания или перемещения принимаются как копирование. Небезопасные пути и повторяющиеся имена файлов отклоняются; ничего не запускается и не открывается автоматически. Полученные файлы остаются в приватном каталоге приложения `received`; открыть их можно через просмотр полученных файлов. Они не удаляются автоматически, поскольку другому приложению ещё может понадобиться их вставить. Удаляйте старые файлы вручную.
+Общий предел исходного содержимого — **32 МиБ на передачу**. Папки и символические ссылки не передаются: предварительно упакуйте папку в архив. Операции вырезания или перемещения принимаются как копирование. Небезопасные пути и повторяющиеся имена файлов отклоняются; ничего не запускается и не открывается автоматически. Полученные файлы остаются в приватном каталоге приложения `received`; открыть их можно через вкладку **«Файлы»**. Они не удаляются автоматически, поскольку другому приложению ещё может понадобиться их вставить. Удаляйте старые файлы вручную.
 
 История передач, возобновление прерванной передачи и подтверждение доставки пока отсутствуют. Содержимое, скопированное на компьютере, когда все зарегистрированные устройства отключены, позже не отправляется. На Android последний явно отправленный элемент ожидает доступного устройства до десяти минут.
 
 ### Язык и удаление
 
-Выберите **«Русский / English»** в мастере регистрации. Позже язык можно изменить вверху приложения, сохранив профиль. Параметры `--language ru` и `--language en` задают начальный язык при запуске на компьютере или iOS. Установщик Windows показывает окно выбора языка; установщики для командной строки и Android предлагают выбрать язык и поддерживают `LC_LANGUAGE=ru` или `LC_LANGUAGE=en`. Страница приветствия PKG на macOS использует язык системы; после установки мастер регистрации позволяет явно выбрать один из двух языков.
+Выберите **«Русский / English»** в мастере регистрации. Позже язык можно изменить в настройках, сохранив профиль. Параметры `--language ru` и `--language en` задают начальный язык при запуске на компьютере или iOS. Установщик Windows показывает окно выбора языка; установщики для командной строки и Android предлагают выбрать язык и поддерживают `LC_LANGUAGE=ru` или `LC_LANGUAGE=en`. Установщик macOS в DMG позволяет выбрать русский или английский язык до установки, переустановки или удаления.
 
 Для управления установленным приложением снова запустите тот же установщик:
 
-- **macOS:** откройте тот же `.pkg`. На странице выбора действия отметьте **«Удалить LocalClipboard»**, чтобы удалить приложение вместо переустановки. Приложение и автозапуск текущего пользователя удаляются; профиль и полученные файлы сохраняются. Отдельное приложение удаления не устанавливается.
+- **macOS:** откройте DMG и запустите **LocalClipboard Installer**. Радиокнопки выбирают установку / переустановку или удаление. Обе операции сохраняют профиль и файлы; при выполнении выбранного действия установщик запрашивает права администратора.
 - **Windows:** установщик обнаруживает существующую установку и предлагает переустановку или удаление. Удаление через список установленных приложений Windows также доступно.
 - **Debian/Ubuntu:** установщик для командной строки обнаруживает установленный DEB и предлагает переустановку, удаление или отмену. Изменение пакетов подтверждается через sudo.
 - **Android:** повторно запустите `install.sh` или `install.ps1`, выбрав тот же телефон. Если приложение установлено, можно переустановить или удалить его. Удаление требует ввода `DELETE`.
 - **iOS:** запустите `install.sh` с `IOS_DEVICE_ID` и фактическим `IOS_BUNDLE_ID`. Установщик проверяет выбранное устройство и, если приложение установлено, предлагает переустановку или удаление. Удаление требует `DELETE`, но не требует Qt или новой сборки. Без идентификатора устройства открывается сценарий установки через Xcode.
 
-Удаление через установщики для компьютеров сохраняет личные данные. Удаление на Windows и диалог удаления внутри приложения также предлагают стереть локальные данные. На Android и iOS удаление приложения стирает его локальные данные. Профили остальных устройств сохраняются. На macOS могут остаться квитанции установщика: они содержат сведения о пакете, а не содержимое буфера. Штатное удаление пакета Linux или Windows вне нашего мастера сохраняет пользовательские данные.
+Удаление через установщики для компьютеров по умолчанию сохраняет личные данные. На Windows радиокнопки выбирают сохранение или стирание данных; по умолчанию выбрано сохранение. Диалог **«Удалить…»** внутри приложения также предлагает **«Стереть мои локальные данные»**. На Android и iOS удаление приложения стирает его локальные данные. Профили остальных устройств сохраняются. На macOS могут остаться квитанции установщика: они содержат сведения о пакете, а не содержимое буфера. Штатное удаление пакета Linux или Windows вне нашего мастера сохраняет пользовательские данные.
 
-Формы при необходимости прокручиваются; пояснения переносятся по строкам, а кнопки действий находятся вне прокручиваемой области. Закрытие окна на компьютере оставляет синхронизацию работающей; для остановки завершите LocalClipboard.
+Страницы приложения при необходимости прокручиваются, пояснения переносятся по строкам. Установщик macOS держит основную кнопку действия вне прокручиваемой области. Закрытие окна на компьютере оставляет синхронизацию работающей; для остановки завершите LocalClipboard.
 
 ### Сборка: пять пакетов и пять установщиков
 
-Нужны CMake 3.21.1 или новее, компилятор C++17, модули Qt 6 Core/Network/Widgets/Multimedia/Test и инструменты упаковки соответствующей платформы. Monocypher 4.0.3 включён в исходники; отдельно скачивать криптографическую библиотеку для запуска не требуется.
+На каждой платформе нужны CMake 3.21.1 или новее, компилятор C++17, модули Qt 6 Core/Network/Widgets/Concurrent, Qt Declarative (Quick/QuickControls2) и нативные инструменты упаковки. Тестам для компьютеров нужен Qt Test; компьютерам и iOS также нужен Qt Multimedia. Android использует нативную Camera2. В CI закреплён Qt 6.11.2 для macOS, Windows, Android и iOS; поддерживаются Android 9+ и iOS 17+. Сборки совместимости Linux используют Qt дистрибутива; перед распространением проверьте его исправления безопасности. Monocypher 4.0.3 включён в исходники.
 
 ```sh
 ./scripts/build -t macos
@@ -323,7 +328,7 @@ for regeneration after changing the SVG.
 | Платформа | Пакет приложения | Установщик |
 | --- | --- | --- |
 | Linux (Debian/Ubuntu) | `LocalClipboard-linux-amd64.deb` | `LocalClipboard-linux-amd64-installer.sh` |
-| macOS | `LocalClipboard-macos-package.zip` — пакет приложения `.app` | `LocalClipboard-macos-installer.pkg` |
+| macOS | `LocalClipboard-macos-package.zip` — пакет приложения `.app` | `LocalClipboard-macos-installer.dmg` |
 | Windows | `LocalClipboard-windows-package.zip` | `LocalClipboard-windows-installer.exe` — NSIS |
 | Android | `LocalClipboard-android-package.apk` | `LocalClipboard-android-installer.zip` — APK и скрипты установки через adb с открытием регистрации |
 | iOS/iPadOS | `LocalClipboard-ios-package.zip` — `.app` для устройства arm64 | `LocalClipboard-ios-installer.zip` — исходники и скрипт сборки, подписи и установки через Xcode |
@@ -348,9 +353,7 @@ ctest --test-dir build_desktop --output-on-failure
 
 На Android секрет профиля шифруется AES-GCM ключом из Android Keystore, который нельзя экспортировать; старый профиль переносится при запуске. Очереди буфера и полученные файлы остаются незашифрованными в приватном хранилище с отключённым резервным копированием. На компьютерах и iOS секрет профиля остаётся в приватном файле конфигурации; Windows опирается на ACL пользовательского каталога. Полученные файлы ограничены 512 МиБ и 16 384 файлами: существующие копии сохраняются, а новые передачи при заполнении отклоняются. Это защищает от посторонних пользователей локальной сети, но не от взломанного зарегистрированного устройства или вредоносного ПО от имени вашего пользователя ОС. Протокол не проходил независимый аудит безопасности; групповые ключи не обеспечивают прямую секретность. Приостановите синхронизацию перед копированием содержимого, которое не должно попадать на остальные устройства.
 
-На Android интерфейс переведён на Qt Quick: отрисовка на GPU, инерционная прокрутка, крупные элементы управления и явный выбор вместо комбобоксов. Подготовка файлов выполняется в рабочих потоках; фоновая служба работает в отдельном процессе. Для сборки Android также нужен Qt Declarative (Quick/QuickControls2). В CI закреплён Qt 6.11.2 для macOS, Windows, Android и iOS; поддерживаются Android 9+ и iOS 17+. Сборка Linux использует Qt дистрибутива: перед распространением нужно проверить исправления безопасности его пакета.
-
-См. [проверки безопасности и ограничения выпуска](SECURITY.md#русская-версия).
+Модель угроз, команды санитайзеров и фаззинга, а также проверки на реальных устройствах и с подписью описаны в [проверках безопасности и ограничениях выпуска](SECURITY.md#русская-версия).
 
 Ограничения Android описаны в официальных документах: [правила доступа к буферу обмена](https://developer.android.com/about/versions/10/privacy/changes#clipboard-data) и [службы для подключённых устройств](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device).
 

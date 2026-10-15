@@ -6,9 +6,17 @@ import "Theme.js" as Theme
 ApplicationWindow {
     id: window
     required property QtObject controller
-    width: 412
-    height: 860
-    visible: true
+    property string platformName: Qt.platform.os
+    readonly property bool phone: platformName === "android" || platformName === "ios"
+    readonly property bool wide: !phone && width >= 820
+    property bool startHidden: false
+    property real safeTop: 0
+    property real safeBottom: 0
+    width: phone ? 412 : 1000
+    height: phone ? 860 : 780
+    minimumWidth: phone ? 0 : 360
+    minimumHeight: phone ? 0 : 440
+    visible: !startHidden
     title: "LocalClipboard"
     color: Theme.background
     font.pixelSize: 16
@@ -19,12 +27,24 @@ ApplicationWindow {
     // componentComplete path. Initialize its accessibility attachment here too.
     Component.onCompleted: contentItem.parent.Accessible.name = title
     function showPairing() { qrRevision++; page = "pair" }
+    function navigate(destination) {
+        page = destination
+        if (destination === "files") controller.refreshFiles()
+    }
     function back() {
         if (page === "register" && !controller.registered) return false
         if (page !== "home") { page = "home"; return true }
         return false
     }
-    onClosing: function(close) { if (back()) close.accepted = false }
+    onClosing: function(close) { if (phone && back()) close.accepted = false }
+    Shortcut { sequence: "Ctrl+1"; enabled: controller.registered; onActivated: window.page = "home" }
+    Shortcut { sequence: "Ctrl+2"; enabled: controller.registered; onActivated: window.navigate("files") }
+    Shortcut { sequence: "Ctrl+,"; enabled: controller.registered; onActivated: window.page = "settings" }
+    Shortcut { sequence: "Escape"; onActivated: window.back() }
+    Connections {
+        target: controller
+        function onMessageChanged() { if (window.page === "files") controller.refreshFiles() }
+    }
     Dialog {
         id: shareConfirmation
         anchors.centerIn: parent
@@ -60,10 +80,10 @@ ApplicationWindow {
     }
     header: Item {
         id: titleBar
-        height: 84 + SafeArea.margins.top
+        height: 84 + window.safeTop
         RowLayout {
             anchors.fill: parent
-            anchors.topMargin: titleBar.SafeArea.margins.top
+            anchors.topMargin: window.safeTop
             anchors.leftMargin: 24
             anchors.rightMargin: 24
             spacing: 12
@@ -85,34 +105,39 @@ ApplicationWindow {
     }
     footer: Item {
         id: tabBar
-        visible: controller.registered && window.page !== "register" && window.page !== "pair"
-        height: visible ? 84 + SafeArea.margins.bottom : 0
+        visible: !window.wide && controller.registered && window.page !== "register" && window.page !== "pair"
+        height: visible ? 84 + window.safeBottom : 0
         Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: Theme.line }
-        RowLayout {
+        Navigation {
             anchors.fill: parent
             anchors.margins: 12
-            anchors.bottomMargin: 12 + tabBar.SafeArea.margins.bottom
-            spacing: 8
-            Repeater {
-                model: [qsTr("Clipboard"), qsTr("Files"), qsTr("Settings")]
-                ActionButton {
-                    required property int index
-                    required property string modelData
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    text: modelData
-                    primary: window.page === ["home", "files", "settings"][index]
-                    subtle: !primary
-                    onClicked: {
-                        window.page = ["home", "files", "settings"][index]
-                        if (index === 1) controller.refreshFiles()
-                    }
-                }
+            anchors.bottomMargin: 12 + window.safeBottom
+            currentPage: window.page
+            onSelected: function(page) { window.navigate(page) }
+        }
+    }
+    Rectangle {
+        visible: window.wide && controller.registered
+        width: 220
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        color: Theme.background
+        Rectangle { anchors.right: parent.right; height: parent.height; width: 1; color: Theme.line }
+        Column {
+            anchors.fill: parent; anchors.margins: 16; spacing: 12
+            Navigation {
+                width: parent.width
+                vertical: true
+                currentPage: window.page
+                onSelected: function(page) { window.navigate(page) }
             }
+            BodyText { width: parent.width; text: controller.deviceName; font.pixelSize: 13; color: Theme.muted }
         }
     }
     ColumnLayout {
         anchors.fill: parent
+        anchors.leftMargin: window.wide && controller.registered ? 220 : 0
         spacing: 0
         // Persistent feedback does not resize or reset a scrolling page on each poll.
         Rectangle {
@@ -135,9 +160,11 @@ ApplicationWindow {
                     Row {
                         width: parent.width; spacing: 10
                         Rectangle { width: 9; height: 9; radius: 5; color: controller.paused ? Theme.muted : Theme.positive; anchors.verticalCenter: parent.verticalCenter }
-                        BodyText { width: parent.width - 19; text: controller.paused ? qsTr("Synchronization paused") : qsTr("Ready to receive"); color: controller.paused ? Theme.muted : Theme.positive; font.weight: Font.DemiBold }
+                        BodyText { width: parent.width - 19; text: controller.paused ? qsTr("Synchronization paused") : controller.receiving ? qsTr("Ready to receive") : qsTr("Waiting for connection"); color: controller.paused ? Theme.muted : Theme.positive; font.weight: Font.DemiBold }
                     }
                     BodyText { width: parent.width; text: controller.ownerName + " · " + controller.deviceName; color: Theme.muted; font.pixelSize: 14 }
+                    ActionButton { width: parent.width; visible: controller.pendingClipboard; primary: true; text: qsTr("Copy received clipboard"); enabled: !controller.paused; onClicked: controller.copyReceivedClipboard() }
+                    BodyText { width: parent.width; visible: controller.pendingClipboard; text: qsTr("New content is waiting. It will be copied only when you choose Copy."); color: Theme.accent; font.pixelSize: 14 }
                     ActionButton { width: parent.width; text: controller.busy ? qsTr("Preparing files…") : qsTr("Send clipboard"); primary: true; enabled: !controller.busy && !controller.paused; onClicked: controller.sendClipboard() }
                     ActionButton { width: parent.width; text: qsTr("Send files / photos…"); enabled: !controller.busy && !controller.paused; onClicked: controller.pickFiles() }
                 }
@@ -162,7 +189,7 @@ ApplicationWindow {
                         BodyText { width: parent.width; text: qsTr("Connected on your network"); color: Theme.positive; font.pixelSize: 13 }
                     }
                 }
-                BodyText { width: parent.width; text: qsTr("Background reception stays on. To send, open the app or use Share → LocalClipboard."); color: Theme.muted; font.pixelSize: 14 }
+                BodyText { width: parent.width; text: window.platformName === "android" ? qsTr("Received content appears in a notification. Tap Copy to put it on the clipboard. To send, open the app or use Share → LocalClipboard.") : platformName === "ios" ? qsTr("Keep LocalClipboard open to receive. Send with the clipboard button or Files / Photos. QR pairing also fills in the other device’s IP addresses.") : qsTr("Clipboard changes sync automatically. Closing this window keeps synchronization running. Use Quit in Settings or the tray to stop it."); color: Theme.muted; font.pixelSize: 14 }
             }
             ScrollPage {
                 objectName: "settingsScroll"
@@ -177,13 +204,16 @@ ApplicationWindow {
                 Card {
                     width: parent.width
                     SettingSwitch {
+                        objectName: "pauseSwitch"
                         width: parent.width
                         text: qsTr("Pause synchronization")
                         checked: controller.paused
                         onToggled: controller.setPaused(checked)
                     }
                     SettingSwitch {
+                        objectName: "autostartSwitch"
                         width: parent.width
+                        visible: window.platformName !== "ios"
                         text: qsTr("Start automatically")
                         checked: controller.autostart
                         onToggled: controller.setAutostart(checked)
@@ -191,6 +221,8 @@ ApplicationWindow {
                 }
                 Card {
                     width: parent.width
+                    ActionButton { width: parent.width; visible: window.platformName === "android"; text: qsTr("Notification settings"); onClicked: controller.notificationSettings() }
+                    BodyText { width: parent.width; visible: window.platformName === "android"; text: qsTr("Enable pop-up notifications for Received clipboard in Android settings. Silent mode and Do Not Disturb may hide banners."); color: Theme.muted; font.pixelSize: 14 }
                     BodyText { width: parent.width; text: qsTr("Language"); font.weight: Font.DemiBold }
                     RowLayout {
                         width: parent.width
@@ -202,8 +234,15 @@ ApplicationWindow {
                     width: parent.width
                     BodyText { width: parent.width; text: qsTr("Network settings"); font.weight: Font.DemiBold }
                     BodyText { width: parent.width; text: qsTr("If a device is not found automatically, enter its local IPv4 address. Separate addresses with spaces."); color: Theme.muted; font.pixelSize: 14 }
+                    BodyText { width: parent.width; text: qsTr("This device: %1").arg(controller.localAddresses || "—"); color: Theme.muted; font.pixelSize: 14 }
                     Editor { id: addresses; width: parent.width; text: controller.addresses; placeholderText: "192.168.1.10"; maximumLength: 512; inputMethodHints: Qt.ImhPreferNumbers; onAccepted: saveNetwork.clicked() }
                     ActionButton { id: saveNetwork; width: parent.width; text: qsTr("Save"); onClicked: { if (controller.saveAddresses(addresses.text)) Qt.inputMethod.hide() } }
+                }
+                Card {
+                    width: parent.width
+                    visible: !window.phone
+                    ActionButton { width: parent.width; text: qsTr("Uninstall…"); subtle: true; onClicked: controller.uninstall() }
+                    ActionButton { width: parent.width; text: qsTr("Quit LocalClipboard"); onClicked: controller.quit() }
                 }
                 BodyText { width: parent.width; text: qsTr("Your connection code gives access to this profile. Each person should create their own profile."); color: Theme.muted; font.pixelSize: 14 }
             }
@@ -224,6 +263,7 @@ ApplicationWindow {
                     Editor { id: device; objectName: "deviceInput"; width: parent.width; text: controller.deviceName; placeholderText: qsTr("Device name"); maximumLength: 80; onAccepted: Qt.inputMethod.hide() }
                     RowLayout {
                         id: modes
+                        objectName: "profileMode"
                         property bool join: false
                         width: parent.width
                         ActionButton { Layout.fillWidth: true; text: qsTr("Create new"); primary: !modes.join; onClicked: modes.join = false }
@@ -232,7 +272,8 @@ ApplicationWindow {
                     Column {
                         width: parent.width; spacing: 14; visible: modes.join
                         BodyText { width: parent.width; text: qsTr("Connection code"); color: Theme.muted; font.pixelSize: 14 }
-                        Editor { id: code; objectName: "codeInput"; width: parent.width; placeholderText: "LC2.…"; maximumLength: 68; echoMode: TextInput.Password; inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhPreferLatin }
+                        Editor { id: code; objectName: "codeInput"; width: parent.width; placeholderText: "LC2.…"; maximumLength: 1024; echoMode: TextInput.Password; inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhPreferLatin }
+                        BodyText { width: parent.width; text: qsTr("Addresses from QR: %1").arg(controller.parseConnection(code.text).addresses || "—"); color: Theme.muted; font.pixelSize: 14 }
                         ActionButton { width: parent.width; text: qsTr("Scan QR code"); onClicked: { Qt.inputMethod.hide(); const value = controller.scanQr(); if (value.length) code.text = value } }
                     }
                     ActionButton {
@@ -251,7 +292,7 @@ ApplicationWindow {
             ScrollPage {
                 objectName: "pairingScroll"
                 BodyText { width: parent.width; text: qsTr("Connect another device"); font.pixelSize: 30; font.weight: Font.DemiBold }
-                BodyText { width: parent.width; text: qsTr("On your other device, choose Connect and scan this code."); color: Theme.muted }
+                BodyText { width: parent.width; text: qsTr("On your other device, choose Connect and scan this code. The profile and IP addresses are filled in together."); color: Theme.muted }
                 Card {
                     width: parent.width
                     Rectangle {
@@ -280,12 +321,12 @@ ApplicationWindow {
                     cacheBuffer: 250
                     model: controller.receivedFiles
                     boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar { width: 3; interactive: false; Accessible.ignored: true }
+                    ScrollBar.vertical: ScrollBar { width: window.phone ? 3 : 8; interactive: !window.phone; Accessible.ignored: true }
                     enabled: !controller.loadingFiles
                     delegate: Card {
                         required property var modelData
                         required property int index
-                        width: ListView.view.width - 40
+                        width: Math.min(ListView.view.width - 40, 720)
                         anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
                         BodyText { width: parent.width; text: modelData.name; font.weight: Font.DemiBold }
                         RowLayout {

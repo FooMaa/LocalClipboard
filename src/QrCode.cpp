@@ -1,12 +1,13 @@
 #include "QrCode.h"
 #include "Profile.h"
+#include "ConnectionInfo.h"
 #include <BitMatrix.h>
 #include <MultiFormatWriter.h>
 #include <ReadBarcode.h>
 
 QImage QrCode::encodeInvitation(const QString &invitation) {
-    Profile check;
-    if (!check.join(invitation)) return {};
+    ConnectionInfo check;
+    if (!ConnectionInfo::parse(invitation, &check)) return {};
     try {
         const auto matrix = ZXing::MultiFormatWriter(ZXing::BarcodeFormat::QRCode)
             .setMargin(4).setEccLevel(4).encode(invitation.trimmed().toStdString(), 320, 320);
@@ -29,10 +30,10 @@ QString QrCode::decodeInvitation(const QImage &source) {
         const auto results = ZXing::ReadBarcodes(ZXing::ImageView(image.constBits(), image.width(), image.height(),
             ZXing::ImageFormat::Lum, image.bytesPerLine()), options);
         for (const auto &result : results) {
-            if (!result.isValid() || result.bytes().size() > 68) continue;
+            if (!result.isValid() || result.bytes().size() > 1024) continue;
             const QString text = QString::fromStdString(result.text()).trimmed();
-            Profile check;
-            if (check.join(text)) return text;
+            ConnectionInfo check;
+            if (ConnectionInfo::parse(text, &check)) return text;
         }
     } catch (const std::exception &) { }
     return {};

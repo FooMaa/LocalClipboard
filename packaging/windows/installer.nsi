@@ -13,7 +13,8 @@ Var MaintenanceRadio
 Var ExistingDirectory
 Var AppLanguage
 Var EraseData
-Var EraseCheckbox
+Var EraseRadio
+Var KeepRadio
 !define MUI_LANGDLL_REGISTRY_ROOT HKCU
 !define MUI_LANGDLL_REGISTRY_KEY "Software\LocalClipboard\Installer"
 !define MUI_LANGDLL_REGISTRY_VALUENAME "Language"
@@ -43,8 +44,10 @@ LangString DataSubtitle ${LANG_ENGLISH} "Keep your profile and files, or erase t
 LangString DataSubtitle ${LANG_RUSSIAN} "Сохраните профиль и файлы или удалите их с этого устройства."
 LangString EraseText ${LANG_ENGLISH} "Erase my local data"
 LangString EraseText ${LANG_RUSSIAN} "Стереть мои данные"
-LangString DataHelp ${LANG_ENGLISH} "Unchecked: your registration and received files are kept for reinstalling.$\r$\n$\r$\nChecked: registration, received files, imported copies and the language preference are erased on this device. Other devices are unaffected."
-LangString DataHelp ${LANG_RUSSIAN} "Без галочки: регистрация и полученные файлы сохранятся для повторной установки.$\r$\n$\r$\nС галочкой: регистрация, полученные файлы, импортированные копии и выбранный язык будут удалены с этого устройства. Данные остальных устройств сохранятся."
+LangString KeepText ${LANG_ENGLISH} "Keep my profile and files"
+LangString KeepText ${LANG_RUSSIAN} "Сохранить профиль и файлы"
+LangString DataHelp ${LANG_ENGLISH} "Keep: registration and received files remain for reinstalling.$\r$\n$\r$\nErase: registration, received files, imported copies and language preference are erased on this device. Other devices are unaffected."
+LangString DataHelp ${LANG_RUSSIAN} "Сохранить: регистрация и файлы останутся для повторной установки.$\r$\n$\r$\nСтереть: регистрация, полученные файлы, импортированные копии и выбранный язык будут удалены с этого устройства. Данные остальных устройств сохранятся."
 LangString CloseApp ${LANG_ENGLISH} "Please quit LocalClipboard from its tray menu, then click Retry."
 LangString CloseApp ${LANG_RUSSIAN} "Завершите LocalClipboard через меню в трее и нажмите «Повторить»."
 LangString MaintenanceTitle ${LANG_ENGLISH} "LocalClipboard is already installed"
@@ -105,15 +108,21 @@ Function un.DataPage
     ${If} $0 == error
         Abort
     ${EndIf}
-    ${NSD_CreateCheckbox} 0 0 100% 18u "$(EraseText)"
-    Pop $EraseCheckbox
-    ${NSD_SetState} $EraseCheckbox $EraseData
-    ${NSD_CreateLabel} 0 30u 100% 110u "$(DataHelp)"
+    ${NSD_CreateRadioButton} 0 0 100% 20u "$(KeepText)"
+    Pop $KeepRadio
+    ${NSD_CreateRadioButton} 0 28u 100% 20u "$(EraseText)"
+    Pop $EraseRadio
+    ${If} $EraseData == ${BST_CHECKED}
+        ${NSD_Check} $EraseRadio
+    ${Else}
+        ${NSD_Check} $KeepRadio
+    ${EndIf}
+    ${NSD_CreateLabel} 0 60u 100% 80u "$(DataHelp)"
     Pop $0
     nsDialogs::Show
 FunctionEnd
 Function un.DataPageLeave
-    ${NSD_GetState} $EraseCheckbox $EraseData
+    ${NSD_GetState} $EraseRadio $EraseData
 FunctionEnd
 Section "LocalClipboard"
     SetShellVarContext current

@@ -46,8 +46,9 @@ Xcode installation flow, not an App Store IPA or a standalone iPhone installer.
 
 ## Connect and use
 
-- On the computer, open **Network settings** and note its Wi-Fi/LAN IPv4 address.
-- On the phone, enter that address in **Network settings**. Allow **Local Network**
+- Scan the computer's QR during registration to fill the profile and IPv4 addresses together.
+  With a legacy connection code, note the computer's Wi-Fi/LAN IPv4 address in Settings.
+- If pairing without a QR, enter that address in **Network settings**. Allow **Local Network**
   access when iOS asks (or enable it in Settings → Apps → LocalClipboard).
 - Keep both apps open on the same LAN. The computer must use the updated version
   that replies to authenticated direct discovery. Your personal profile still
@@ -64,11 +65,10 @@ Xcode installation flow, not an App Store IPA or a standalone iPhone installer.
   is active and a registered peer is discovered. A different profile never sends
   the old queue. Once a send starts, its queue entry is removed; delivery is not
   acknowledged by the current protocol. Local imported copies remain available
-  for retry in **Open received files → Send selected files again**.
-- Received images and files are saved locally; **Open received files** opens a
-  browser with **Share / Save** for exporting to Files, Photos or another app.
-  Clipboard file support depends on the receiving app. Local copies can be deleted
-  from this browser. The configuration / connection secret is never exposed there.
+  in app storage. To retry, select the source files again in Photos / Files.
+- Received images and files are saved locally; the **Files** tab lists received
+  copies with **Open** and **Delete** actions. Opening and clipboard file support
+  depend on the receiving app. The configuration / connection secret is never exposed there.
 
 ## iOS limits
 
@@ -107,7 +107,9 @@ On your registered device, open **Connect device…**. In the phone's registrati
 wizard, tap **Scan QR code**, allow camera access, scan and confirm **Register**.
 You can also scan a QR shown on this phone from another device. Use **Read QR from
 image…** if a camera is unavailable. Keep the QR private: it grants access to your
-personal profile. For an already registered phone, open **Change profile…** first.
+personal profile. It also includes local IPv4 addresses; registration applies the key
+and addresses together. Legacy connection codes require manual addresses.
+For an already registered phone, open **Change profile…** first.
 
 ---
 
@@ -147,14 +149,14 @@ export IOS_DEVICE_ID=YOUR_DEVICE_ID # См.: xcrun devicectl list devices
 
 ### Подключение и использование
 
-- На компьютере откройте настройки сети и определите его IPv4-адрес в Wi-Fi или локальной сети.
-- На телефоне введите этот адрес в настройках сети. При запросе iOS разрешите доступ к **«Локальной сети»** либо включите его в Settings → Apps → LocalClipboard.
+- Отсканируйте QR компьютера при регистрации, чтобы заполнить профиль и IPv4-адреса вместе. При использовании старого кода подключения определите IPv4-адрес компьютера в Wi-Fi или локальной сети через настройки.
+- При подключении без QR введите этот адрес в настройках сети. При запросе iOS разрешите доступ к **«Локальной сети»** либо включите его в Settings → Apps → LocalClipboard.
 - Оставляйте оба приложения открытыми в одной локальной сети. На компьютере нужна обновлённая версия, отвечающая на аутентифицированные прямые запросы обнаружения. Доступ по-прежнему определяется личным профилем: знание IP-адреса не даёт доступа к буферу.
 - Кнопка отправки текущего буфера явно отправляет текст и изображения. iOS может запросить разрешение на вставку. Приложение не опрашивает буфер и не читает его автоматически при запуске.
 - Отправка файлов и фотографий использует системные окна Apple «Файлы» и «Фото». Поддерживается до 32 файлов общим объёмом до 32 МиБ; содержимое iCloud может потребоваться предварительно скачать.
 - Из «Файлов» или другого приложения с действием **«Открыть в / Скопировать в LocalClipboard»** можно передать документ. Доступные действия зависят от отправляющего приложения. Используется механизм открытия документов iOS; отдельного расширения «Поделиться» для произвольного выделенного текста нет. Для текста используйте кнопку отправки буфера.
-- Импортированные файлы попадают в очередь текущего личного профиля и отправляются, когда приложение активно и обнаружено зарегистрированное устройство. Другой профиль не отправляет старую очередь. После начала отправки запись удаляется из очереди; текущий протокол не подтверждает доставку. Локальные импортированные копии остаются доступны для повторной отправки через просмотр полученных файлов и действие повторной отправки выбранных файлов.
-- Полученные изображения и файлы сохраняются локально. Просмотр полученных файлов открывает список с действиями отправки через системное меню и сохранения в «Файлы», «Фото» или другое приложение. Поддержка файлов из буфера зависит от принимающего приложения. Локальные копии можно удалить из этого списка. Конфигурация и секрет подключения никогда не показываются в нём.
+- Импортированные файлы попадают в очередь текущего личного профиля и отправляются, когда приложение активно и обнаружено зарегистрированное устройство. Другой профиль не отправляет старую очередь. После начала отправки запись удаляется из очереди; текущий протокол не подтверждает доставку. Локальные импортированные копии остаются в хранилище приложения. Для повторной отправки снова выберите исходные файлы в «Фото» или «Файлах».
+- Полученные изображения и файлы сохраняются локально. Вкладка **«Файлы»** показывает полученные копии с действиями **«Открыть»** и **«Удалить»**. Возможность открытия и поддержка файлов из буфера зависят от принимающего приложения. Конфигурация и секрет подключения никогда не показываются в нём.
 
 ### Ограничения iOS
 
@@ -172,4 +174,4 @@ export IOS_DEVICE_ID=YOUR_DEVICE_ID # См.: xcrun devicectl list devices
 
 ### Подключение по QR-коду
 
-На зарегистрированном устройстве откройте **«Подключить устройство…»**. В мастере регистрации телефона нажмите **«Сканировать QR-код»**, разрешите доступ к камере, отсканируйте код и подтвердите регистрацию. QR можно показать и на телефоне, чтобы считать его с другого устройства. Если камера недоступна, выберите **«Считать QR из изображения…»**. Не передавайте QR посторонним: он даёт доступ к личному профилю. На уже зарегистрированном телефоне сначала откройте **«Сменить профиль…»**.
+На зарегистрированном устройстве откройте **«Подключить устройство…»**. В мастере регистрации телефона нажмите **«Сканировать QR-код»**, разрешите доступ к камере, отсканируйте код и подтвердите регистрацию. QR можно показать и на телефоне, чтобы считать его с другого устройства. Если камера недоступна, выберите **«Считать QR из изображения…»**. Не передавайте QR посторонним: он даёт доступ к личному профилю. Он также содержит локальные IPv4-адреса: регистрация применяет ключ и адреса вместе. Для старых кодов подключения адреса вводятся вручную. На уже зарегистрированном телефоне сначала откройте **«Сменить профиль…»**.

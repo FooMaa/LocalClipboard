@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Guard README translations; semantic equivalence still requires proofreading."""
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+DIVIDER = '## Русская версия'
+FENCES = re.compile(r'^ {0,3}```[^\n]*\n(.*?)^ {0,3}```[ \t]*$', re.M | re.S)
+INLINE_CODE = re.compile(r'(?<!`)`([^`\n]+)`(?!`)')
+URLS = re.compile(r'https?://[^\s)<>]+')
+LINKS = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
+
+
+def commands(text):
+    # Comments may be translated; executable commands and reference hashes must match.
+    return {tuple(line.split(' #', 1)[0].rstrip() for line in block.strip().splitlines()
+                  if line.strip() and not line.lstrip().startswith('#'))
+            for block in FENCES.findall(text)}
+
+
+def link_targets(text):
+    targets = {url.rstrip('.,;') for url in URLS.findall(text)}
+    # Local headings can use translated anchors pointing into the same document.
+    targets.update(url.split('#', 1)[0] for url in LINKS.findall(text)
+                   if not url.startswith(('https://', 'http://', '#')))
+    return targets
+
+
+def check(path):
+    text = path.read_text(encoding='utf-8')
+    if text.count(DIVIDER) != 1:
+        return ['expected exactly one Russian section after the English text']
+    english, russian = text.split(DIVIDER)
+    errors = []
+    plain_english = FENCES.sub('', english)
+    plain_russian = FENCES.sub('', russian)
+    if not english.strip() or not re.search('[А-Яа-яЁё]', plain_russian):
+        errors.append('both English and Russian versions must be present')
+    for label, missing in (
+        ('inline commands/references', set(INLINE_CODE.findall(plain_english)) - set(INLINE_CODE.findall(plain_russian))),
+        ('links', link_targets(english) - link_targets(russian)),
+        ('code blocks', commands(english) - commands(russian)),
+    ):
+        if missing:
+            errors.append(f'Russian version is missing {label}: {sorted(missing)}')
+    if len(re.findall(r'^#+ ', english, re.M)) != len(re.findall(r'^#+ ', russian, re.M)):
+        errors.append('English and Russian heading counts differ')
+    for paragraph in plain_russian.split('\n\n'):
+        prose = INLINE_CODE.sub('', URLS.sub('', paragraph))
+        prose = LINKS.sub('', prose)
+        if not re.search('[А-Яа-яЁё]', prose) and len(re.findall(r'\b[A-Za-z]{2,}\b', prose)) > 5:
+            errors.append('English paragraph below Russian divider: ' + paragraph[:120])
+    for target in LINKS.findall(text):
+        if target.startswith(('https://', 'http://', '#')):
+            continue
+        local = target.split('#', 1)[0]
+        if local and not (path.parent / local).exists():
+            errors.append('broken local link: ' + target)
+    return errors
+
+
+def main():
+    tracked = subprocess.check_output(
+        ['git', '-C', str(ROOT), 'ls-files', '--cached', '--others', '--exclude-standard', '-z'])
+    paths = sorted({ROOT / name.decode('utf-8') for name in tracked.split(b'\0')
+                    if name and Path(name.decode('utf-8')).name.lower() == 'readme.md'})
+    failed = False
+    for path in paths:
+        for error in check(path):
+            print(f'{path.relative_to(ROOT)}: {error}', file=sys.stderr)
+            failed = True
+    if not paths:
+        print('No README files found', file=sys.stderr)
+        return 1
+    if not failed:
+        print(f'Checked {len(paths)} README files: language sections, commands, references and links match.')
+    return int(failed)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

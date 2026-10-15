@@ -15,7 +15,9 @@ own copyright and license notices.
 
 ## Русская версия
 
-Исходники `core/` и LICENSE из ZXing-C++ 2.3.0 по ссылке выше.
+### ZXing-C++ 2.3.0
+
+Исходники `core/` и LICENSE из [ZXing-C++ 2.3.0](https://github.com/zxing-cpp/zxing-cpp/tree/v2.3.0).
 Неиспользуемый каталог `core/src/libzint/` исключён: его исходные симлинки ведут
 в отдельный репозиторий zint, которого нет в этой поставке. В README libzueci
 добавлен русский перевод. В `core/src/HybridBinarizer.cpp` внесена локальная

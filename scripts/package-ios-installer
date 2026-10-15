@@ -7,7 +7,7 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$ROOT/dist" "$stage/installer/Source"
 cp "$ROOT/CMakeLists.txt" "$stage/installer/Source/"
-for directory in src cmake ios third_party scripts packaging assets; do
+for directory in src cmake ios third_party scripts packaging assets qml; do
     cp -R "$ROOT/$directory" "$stage/installer/Source/"
 done
 cp "$ROOT/packaging/ios/install.sh" "$ROOT/packaging/common/language.sh" "$ROOT/packaging/ios/README.md" "$stage/installer/"

@@ -62,7 +62,7 @@ Section: utils
 Priority: optional
 Architecture: $arch
 Maintainer: LocalClipboard <dev@localclipboard.org>
-Depends: $runtime_depends, qt6-qpa-plugins, gstreamer1.0-plugins-good, policykit-1
+Depends: $runtime_depends, qt6-qpa-plugins, qml6-module-qtquick, qml6-module-qtquick-window, qml6-module-qtquick-layouts, qml6-module-qtquick-controls, qml6-module-qtquick-templates, qml6-module-qtqml-workerscript, gstreamer1.0-plugins-good, policykit-1
 Description: Personal encrypted LAN clipboard synchronization
  Text, photos and files. Register separate personal profiles on first launch.
 CONTROL
@@ -95,7 +95,8 @@ INSTALLER
         command -v macdeployqt >/dev/null || fail "macdeployqt must be on PATH"
         mkdir -p "$stage/root/Applications" "$stage/scripts"
         cp -R "$app" "$stage/root/Applications/"
-        deploy_args=(-always-overwrite -no-plugins)
+        python3 "$ROOT/scripts/prepare-qml-imports" "$ROOT/qml" "$stage/qml-imports"
+        deploy_args=(-always-overwrite -no-plugins "-qmldir=$ROOT/qml" "-qmlimport=$stage/qml-imports")
         # Older Qt releases (including CI's 6.8) do not accept -no-codesign.
         # Defer signing when supported; the completed bundle is signed below.
         if [[ "$(macdeployqt -help 2>&1)" == *"-no-codesign"* ]]; then
@@ -120,7 +121,7 @@ INSTALLER
         deploy_args+=("-libpath=$(qtpaths --query QT_INSTALL_LIBS)")
         macdeployqt "$stage/root/Applications/LocalClipboard.app" "${deploy_args[@]}"
         mkdir -p "$deployed_app/Contents/Resources"
-        printf '[Paths]\nPlugins=PlugIns\n' > "$deployed_app/Contents/Resources/qt.conf"
+        printf '[Paths]\nPlugins=PlugIns\nQmlImports=Resources/qml\n' > "$deployed_app/Contents/Resources/qt.conf"
         mkdir -p "$stage/root/Applications/LocalClipboard.app/Contents/Resources/licenses"
         cp "$ROOT/third_party/monocypher/LICENCE.md" "$stage/root/Applications/LocalClipboard.app/Contents/Resources/licenses/monocypher.txt"
         cp "$ROOT/third_party/zxing/LICENSE" "$deployed_app/Contents/Resources/licenses/zxing.txt"
@@ -153,9 +154,8 @@ PY
         chmod +x "$stage/removal-scripts/postinstall"
         pkgbuild --nopayload --identifier org.localclipboard.removal --version "$version" \
             --scripts "$stage/removal-scripts" "$stage/removal.pkg"
-        pkg_args=(--distribution "$ROOT/packaging/macos/distribution.xml" --package-path "$stage" --resources "$ROOT/packaging/macos/resources")
-        [[ -z ${MACOS_INSTALLER_SIGN_IDENTITY:-} ]] || pkg_args+=(--sign "$MACOS_INSTALLER_SIGN_IDENTITY")
-        productbuild "${pkg_args[@]}" "$ROOT/dist/LocalClipboard-macos-installer.pkg"
+        "$ROOT/scripts/package-macos-installer" "$stage/component.pkg" "$stage/removal.pkg" "$ROOT/dist/LocalClipboard-macos-installer.dmg"
+        rm -f "$ROOT/dist/LocalClipboard-macos-installer.pkg"
         ;;
     ios)
         [[ $(uname -s) == Darwin ]] || fail "iOS packaging requires macOS"
@@ -200,7 +200,7 @@ PY
         cp "$ROOT/third_party/monocypher/LICENCE.md" "$deploy/licenses/monocypher.txt"
         cp "$ROOT/third_party/zxing/LICENSE" "$deploy/licenses/zxing.txt"
         cp "$ROOT/third_party/zxing/NOTICES.txt" "$deploy/licenses/zxing-notices.txt"
-        windeployqt --release --no-compiler-runtime --no-translations "$deploy/LocalClipboard.exe"
+        windeployqt --release --no-compiler-runtime --no-translations --qmldir "$ROOT/qml" "$deploy/LocalClipboard.exe"
         # App-local MSVC runtime avoids requiring an administrator to install VC redist.
         : "${VCToolsRedistDir:?Run packaging from the MSVC developer environment (VCToolsRedistDir missing)}"
         crt_root=$(cygpath -u "$VCToolsRedistDir")

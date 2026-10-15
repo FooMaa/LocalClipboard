@@ -1,4 +1,0 @@
-"INSTALL_TITLE" = "Install / reinstall LocalClipboard";
-"INSTALL_HELP" = "Install the app and open registration. Your existing profile and files are preserved. Select Remove below to switch actions.";
-"REMOVE_TITLE" = "Remove LocalClipboard";
-"REMOVE_HELP" = "Select this option to remove the app instead of installing it. Automatic startup for the current user is removed. Your profile and received files are kept. Available when the app is installed in Applications.";

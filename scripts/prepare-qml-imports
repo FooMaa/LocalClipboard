@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Stage the scanned QML modules without unrelated nested Qt modules/styles."""
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+source, destination = map(Path, sys.argv[1:])
+qml_root = subprocess.check_output(['qtpaths', '--query', 'QT_INSTALL_QML'], text=True).strip()
+libexec = subprocess.check_output(['qtpaths', '--query', 'QT_INSTALL_LIBEXECS'], text=True).strip()
+modules = json.loads(subprocess.check_output([str(Path(libexec) / 'qmlimportscanner'),
+    '-rootPath', str(source), '-importPath', qml_root], text=True))
+
+def copy_module(origin, target):
+    target.mkdir(parents=True, exist_ok=True)
+    for entry in origin.iterdir():
+        if entry.is_dir():
+            # A nested module is copied only if the scanner lists it explicitly.
+            if (entry / 'qmldir').exists() or entry.name.endswith('.dSYM'):
+                continue
+            copy_module(entry, target / entry.name)
+        else:
+            shutil.copy2(entry, target / entry.name)
+
+count = 0
+for module in modules:
+    if module.get('type') != 'module':
+        continue
+    if not module.get('path') or not module.get('relativePath'):
+        sys.exit('Unresolved QML import: ' + module['name'])
+    relative = Path(module['relativePath'])
+    if relative.is_absolute() or '..' in relative.parts:
+        sys.exit('Invalid QML module path')
+    copy_module(Path(module['path']), destination / relative)
+    count += 1
+print(f'Staged {count} QML modules for deployment')

@@ -10,11 +10,13 @@ For Qt 6.11 kits, also install Qt TaskTree (`qttasktree`): the bundled QML asset
 downloader depends on it. Include it in both the target and desktop host kits,
 including the macOS kit used to test the Android interface preview.
 QR encoding/decoding uses the bundled ZXing-C++ sources; no QR library download is needed.
+Qt Quick / QuickControls2 are required on every platform. macOS installer packaging also
+requires Swift (Command Line Tools or Xcode) and creates a DMG with a bilingual maintenance wizard.
 
 Other Linux distributions: C++17 compiler, CMake >=3.21.1, Ninja (optional),
-Qt 6 Core, Network, Widgets, Multimedia, Test and platform plugins. Windows: MSVC, Qt 6 desktop
+Qt 6 Core, Network, Widgets, Concurrent, Multimedia, Quick, QuickControls2, Test and platform plugins. Windows: MSVC, Qt 6 desktop
 and NSIS (e.g. `choco install nsis`). Linux packaging uses `dpkg-dev`; macOS uses
-`macdeployqt`, Python 3, `pkgbuild` and `productbuild` from the development tools.
+`macdeployqt`, Python 3, Swift, `pkgbuild` and `hdiutil` from the development tools.
 
 Android on Linux/macOS additionally requires JDK 21, Android SDK command-line tools,
 platform/build tools and an NDK compatible with your Qt version. Install matching
@@ -37,7 +39,7 @@ not include the Android kit. The installers do not accept licenses automatically
 
 ## Android — Qt 6
 
-Android uses the Qt Quick interface in `qml/`, the C++ controller/session in `src/`
+All platforms use the Qt Quick interface in `qml/`, the C++ controller/session in `src/`
 and the shared protocol core. Install Qt Declarative (Quick, QuickControls2) in both
 kits. The root CMake project generates the Gradle project and APK configuration.
 The `android/` directory supplies a custom manifest, QtActivity subclass for Share
@@ -52,8 +54,8 @@ After installing the dependencies above, run:
 ```
 
 Register the phone with your personal profile and permit notifications. The service
-receives text/images/files in the background; open the notification to apply the
-latest item. Android 10+ restricts reading the clipboard to the focused app, so tap
+receives text/images/files in the background; tap **Copy** in its notification or
+**Copy received clipboard** in the app to apply the latest item. Opening the app alone does not copy it. Android 10+ restricts reading the clipboard to the focused app, so tap
 **Send current clipboard** while open or use **Share → LocalClipboard** from another
 app. Release APKs require signing; CI builds an installable debug APK and an adb
 installer ZIP. Device testing is required to verify clipboard, LAN, reboot and
@@ -112,9 +114,11 @@ See [installation and device verification](../packaging/ios/README.md).
 
 Установите Qt Multimedia для комплектов компьютеров и iOS. Android использует нативную камеру Camera2 и не включает Qt Multimedia или FFmpeg. Для генерации и распознавания QR используются включённые исходники ZXing-C++; отдельно скачивать библиотеку QR не нужно.
 
+Qt Quick / QuickControls2 нужны для всех платформ. Для упаковки установщика macOS также нужен Swift из Command Line Tools или Xcode; сборка создаёт DMG с единым двуязычным мастером установки и удаления.
+
 Для комплектов Qt 6.11 также установите Qt TaskTree (`qttasktree`): от него зависит включённый в QML загрузчик ресурсов. Модуль нужен в целевом комплекте и комплекте компьютера с инструментами сборки, включая macOS-комплект для проверки предпросмотра интерфейса Android.
 
-Для других дистрибутивов Linux нужны компилятор C++17, CMake 3.21.1 или новее, Ninja при желании, Qt 6 Core, Network, Widgets, Multimedia, Test и плагины платформы. Для Windows нужны MSVC, Qt 6 для компьютеров и NSIS, например `choco install nsis`. Упаковка Linux использует `dpkg-dev`; macOS — `macdeployqt`, Python 3, `pkgbuild` и `productbuild` из инструментов разработки.
+Для других дистрибутивов Linux нужны компилятор C++17, CMake 3.21.1 или новее, Ninja при желании, Qt 6 Core, Network, Widgets, Concurrent, Multimedia, Quick, QuickControls2, Test и плагины платформы. Для Windows нужны MSVC, Qt 6 для компьютеров и NSIS, например `choco install nsis`. Упаковка Linux использует `dpkg-dev`; macOS — `macdeployqt`, Python 3, Swift, `pkgbuild` и `hdiutil` из инструментов разработки.
 
 Для Android на Linux или macOS дополнительно нужны JDK 21, инструменты командной строки Android SDK, инструменты платформы и сборки, а также NDK, совместимый с вашей версией Qt. Установите комплекты Qt для компьютера с инструментами сборки и Qt для Android через установщик Qt. Для закреплённого в CI Qt 6.11.2 используются SDK 36, build-tools 36.0.0 и NDK 27.2.12479018. Если Qt из пакетного менеджера компьютера используется вместе с Qt для Android, их версии должны совпадать.
 
@@ -131,7 +135,7 @@ export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
 
 ### Android — Qt 6
 
-Android использует интерфейс Qt Quick из `qml/`, контроллер и сессию C++ из `src/` и общее ядро протокола. В обоих комплектах нужен Qt Declarative (Quick, QuickControls2). Корневой проект CMake создаёт проект Gradle и настройки APK. Каталог `android/` содержит манифест, подкласс QtActivity для «Поделиться» и URI буфера через FileProvider, а также отдельную QtService с запуском после перезагрузки. Целевой SDK — 36, минимальный — 28 (Android 9).
+Все платформы используют интерфейс Qt Quick из `qml/`, контроллер и сессию C++ из `src/` и общее ядро протокола. В обоих комплектах нужен Qt Declarative (Quick, QuickControls2). Корневой проект CMake создаёт проект Gradle и настройки APK. Каталог `android/` содержит манифест, подкласс QtActivity для «Поделиться» и URI буфера через FileProvider, а также отдельную QtService с запуском после перезагрузки. Целевой SDK — 36, минимальный — 28 (Android 9).
 
 После установки перечисленных зависимостей выполните:
 
@@ -140,11 +144,19 @@ Android использует интерфейс Qt Quick из `qml/`, контр
 ./scripts/package -t apk
 ```
 
-Зарегистрируйте телефон в личном профиле и разрешите уведомления. Служба принимает текст, изображения и файлы в фоне; откройте уведомление, чтобы поместить последний элемент в буфер. Android 10+ позволяет читать буфер только приложению в фокусе, поэтому отправляйте текущий буфер из открытого приложения либо используйте **«Поделиться → LocalClipboard»** из другого приложения. Выпускные APK требуют подписи; CI создаёт устанавливаемый отладочный APK и ZIP установщика через adb. На реальном устройстве нужно проверить буфер, локальную сеть, перезагрузку и управление батареей производителем на вашей версии Android.
+Зарегистрируйте телефон в личном профиле и разрешите уведомления. Служба принимает текст, изображения и файлы в фоне; нажмите «Скопировать» в уведомлении или в приложении, чтобы поместить последний элемент в буфер. Простое открытие приложения не копирует его. Android 10+ позволяет читать буфер только приложению в фокусе, поэтому отправляйте текущий буфер из открытого приложения либо используйте **«Поделиться → LocalClipboard»** из другого приложения. Выпускные APK требуют подписи; CI создаёт устанавливаемый отладочный APK и ZIP установщика через adb. На реальном устройстве нужно проверить буфер, локальную сеть, перезагрузку и управление батареей производителем на вашей версии Android.
 
 ### Подпись отладочных сборок Android
 
-Android принимает обновление только с тем же ключом подписи, что у установленной версии. CI восстанавливает `~/.android/debug.keystore` из отдельного кеша отладочного ключа вместо новой подписи на каждом запуске. Кеш может быть удалён, а видимость кешей зависит от ветки. Для постоянной подписи создайте ключ локально командой из английского раздела выше или используйте свой существующий отладочный ключ. Сохраните base64-содержимое файла в секрете Actions репозитория `ANDROID_DEBUG_KEYSTORE_BASE64`. Требуются псевдоним `androiddebugkey` и пароли хранилища/ключа `android`, соответствующие конфигурации отладочной подписи Gradle.
+Android принимает обновление только с тем же ключом подписи, что у установленной версии. CI восстанавливает `~/.android/debug.keystore` из отдельного кеша отладочного ключа вместо новой подписи на каждом запуске. Кеш может быть удалён, а видимость кешей зависит от ветки. Для постоянной подписи создайте ключ локально или используйте свой существующий отладочный ключ:
+
+```sh
+keytool -genkeypair -keystore /private/path/debug.keystore -storepass android -keypass android \
+  -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname 'CN=LocalClipboard Development,O=LocalClipboard,C=US'
+```
+
+Сохраните base64-содержимое файла в секрете Actions репозитория `ANDROID_DEBUG_KEYSTORE_BASE64`. Требуются псевдоним `androiddebugkey` и пароли хранилища/ключа `android`, соответствующие конфигурации отладочной подписи Gradle.
 
 Секрет имеет приоритет перед кешем и никогда не сохраняется в этот кеш. Сделайте приватную резервную копию ключа и не коммитьте его. Для публичного распространения используйте отдельный выпускной ключ и конфигурацию подписи. Pull request из форка не имеет доступа к секретам, поэтому его APK может иметь другой ключ. Если прежний ключ CI уже потерян, обновление поверх старой версии невозможно: сохраните код подключения, явно удалите приложение один раз, установите заново и подключитесь к прежнему профилю.
 

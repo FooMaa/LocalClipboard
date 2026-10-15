@@ -9,6 +9,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check complete README translations
+        if: runner.os == 'Linux'
+        run: python3 scripts/check-readmes
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: ./dependencies/linux.sh
@@ -53,7 +56,7 @@ jobs:
       - name: Test profiles, encryption and clipboard transfer
         shell: bash
         run: |
-          cmake --build build_desktop --config Release --parallel 4 --target clipboard_tests app_tests
+          cmake --build build_desktop --config Release --parallel 4 --target clipboard_tests app_tests mobile_tests
           ctest --test-dir build_desktop -C Release --output-on-failure
       - name: Test Android interface layouts, translation and scrolling
         if: runner.os == 'macOS'
@@ -192,7 +195,7 @@ jobs:
           test -f dist/LocalClipboard-linux-amd64.deb
           test -f dist/LocalClipboard-linux-amd64-installer.sh
           test -f dist/LocalClipboard-macos-package.zip
-          test -f dist/LocalClipboard-macos-installer.pkg
+          test -f dist/LocalClipboard-macos-installer.dmg
           test -f dist/LocalClipboard-windows-package.zip
           test -f dist/LocalClipboard-windows-installer.exe
           test -f dist/LocalClipboard-android-package.apk

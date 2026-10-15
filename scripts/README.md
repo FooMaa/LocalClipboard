@@ -17,7 +17,8 @@ Packaging is included in the build. Default directories are `build_TARGET`;
 `desktop` selects the host OS and is the default target. `-n` skips packaging.
 Additional CMake options follow `--`, e.g. `-- -DCMAKE_PREFIX_PATH=/path/to/Qt`.
 `BUILD_TESTING` defaults on for desktop; Qt Test is required unless disabled.
-Install the Qt Multimedia module in every target kit for QR camera scanning.
+Install Qt Multimedia in desktop and iOS kits for QR camera scanning; Android uses native Camera2.
+Every platform requires Qt Quick / QuickControls2.
 ZXing-C++ is built from the included sources without network downloads.
 
 To package an existing build without recompiling:
@@ -33,12 +34,13 @@ packaging; Linux always emits both its DEB and its shell installer. Windows need
 `windeployqt` and NSIS (`makensis` or `NSIS_EXE`). Windows uses `VCToolsRedistDir`
 from the MSVC developer environment to include release CRT DLLs locally; Debug
 builds should use `-n` because debug CRTs are not redistributable.
-macOS needs `macdeployqt`, Python 3, `pkgbuild` and `productbuild`; packaging verifies bundle signatures and rejects
+macOS needs `macdeployqt`, Python 3, Swift, `pkgbuild` and `hdiutil`; packaging verifies bundle signatures and rejects
 unresolved / externally installed Qt dependencies. Linux needs `dpkg-dev` and
 runtime dependency metadata. Its installer uses apt to install the DEB and required
 Qt runtimes, then opens registration as the desktop user; do not invoke it as root.
 
-The macOS PKG deploys into `/Applications` and opens registration in the logged-in
+The macOS DMG contains one installer with install/reinstall and uninstall radio buttons.
+It deploys into `/Applications` and opens registration in the logged-in
 user's session. Windows installs into the current user's local Programs directory
 and offers to open registration on the finish page. Startup is configured by the
 registration wizard under the actual desktop user's account, never under the
@@ -46,14 +48,14 @@ package builder or system installer account.
 
 Android packaging accepts exactly one installable signed APK from a clean build
 configuration/ABI. Debug APKs are signed by Qt/Gradle for testing. Release builds
-must be signed using Qt's Android signing configuration before packaging. Keep a
+must be signed using the release-signing variables below before packaging. Keep a
 stable signing key to allow upgrades. The installer ZIP contains the APK and shell /
 PowerShell scripts; it needs adb and USB debugging. The APK itself installs directly
 on a phone without adb.
 
 For Apple distribution, set `MACOS_APP_SIGN_IDENTITY` and
 `MACOS_INSTALLER_SIGN_IDENTITY`; notarize the resulting artifacts separately. The
-local default uses ad-hoc app signing and an unsigned PKG. See
+local default uses ad-hoc app signing and unsigned internal PKG payloads. See
 [dependencies](../dependencies/README.md) for the Android SDK/NDK setup.
 
 ## Android release signing
@@ -98,14 +100,14 @@ Both languages are compiled into the application without Qt Linguist or separate
 translation downloads. Every registration form offers Русский / English and saves
 the preference for later launches. NSIS explicitly offers both languages and
 passes the choice to the app. Shell installers accept `LC_LANGUAGE=ru|en` or
-prompt in a terminal. The macOS PKG includes `en.lproj` / `ru.lproj` welcome pages;
+prompt in a terminal. The macOS DMG installer explicitly offers both languages;
 its first-run registration wizard offers the explicit language choice.
 
-The same installer handles reinstall and removal. macOS uses mutually exclusive
-PKG choices: choosing Remove deselects the application payload and runs a guarded
-script-only removal component. Removal is disabled without an installed bundle.
-The ZIP contains only the main app. Legacy separate removal launchers are cleaned
-up during removal. The PKG keeps user data and removes the current user's launchd entry.
+The same installer handles reinstall and removal. On macOS, DMG radio buttons select
+exactly one action. The installation payload and guarded removal script are separate
+internal packages. Removal keeps user data, removes the current user's launchd entry
+and cleans up obsolete uninstall launchers.
+
 NSIS detects the recorded Windows installation directory and delegates removal to
 its installed uninstaller, including the optional data-erasure dialog. Linux checks
 DEB status before offering reinstall/remove/cancel. Android queries the selected
@@ -117,8 +119,11 @@ at five packages and five installers.
 
 `python3 tests/PackagingTests.py` checks device arguments, confirmation and macOS
 removal-path guards without removing an installation or contacting a device.
-Qt app tests cover language persistence, invalid registration, layouts at 360 / 520
-pixels with normal / larger text, instance quit IPC and background synchronization.
+Qt app tests cover language persistence without clearing registration inputs, invalid
+registration, shared layouts at 320 / 412 / 1000 pixels in both languages, QR pairing,
+switch input, instance quit IPC and background synchronization.
+`python3 scripts/check-readmes` checks all README language sections, matching
+commands and links, and rejects English prose left after the Russian divider.
 
 ---
 
@@ -136,7 +141,7 @@ pixels with normal / larger text, instance quit IPC and background synchronizati
 ./scripts/build -t ios
 ```
 
-Упаковка входит в процесс сборки. Каталоги по умолчанию называются `build_TARGET`; цель `desktop` выбирает ОС компьютера и используется по умолчанию. Параметр `-n` пропускает упаковку. Дополнительные параметры CMake указываются после `--`, например `-- -DCMAKE_PREFIX_PATH=/path/to/Qt`. Для компьютеров `BUILD_TESTING` включён по умолчанию; Qt Test нужен, если тесты не отключены.
+Упаковка входит в процесс сборки. Каталоги по умолчанию называются `build_TARGET`; цель `desktop` выбирает ОС компьютера и используется по умолчанию. Параметр `-n` пропускает упаковку. Дополнительные параметры CMake указываются после `--`, например `-- -DCMAKE_PREFIX_PATH=/path/to/Qt`. Для компьютеров `BUILD_TESTING` включён по умолчанию; Qt Test нужен, если тесты не отключены. Для сканирования QR камерой установите Qt Multimedia в комплектах компьютеров и iOS; Android использует нативную Camera2. Всем платформам нужны Qt Quick / QuickControls2. ZXing-C++ собирается из включённых исходников без загрузок из сети.
 
 Чтобы упаковать уже собранное приложение без повторной компиляции:
 
@@ -148,20 +153,20 @@ cmake --build build_desktop --config Release --target installers
 
 Все результаты сохраняются в `dist/`. Значения `deb`, `sh` и `apk` остаются псевдонимами упаковки Linux и Android; Linux всегда создаёт DEB и установщик для командной строки. Для Windows нужны `windeployqt` и NSIS: `makensis` или `NSIS_EXE`. Windows использует `VCToolsRedistDir` из окружения разработчика MSVC, чтобы включить выпускные DLL среды CRT рядом с приложением. Для отладочных сборок используйте `-n`, поскольку отладочные CRT нельзя распространять.
 
-Для macOS нужны `macdeployqt`, Python 3, `pkgbuild` и `productbuild`. При упаковке проверяются подписи пакетов приложения; неразрешённые зависимости Qt и ссылки на внешнюю установку Qt отклоняются. Linux требует `dpkg-dev` и сведения о зависимостях времени выполнения. Его установщик использует apt для установки DEB и нужных библиотек Qt, затем открывает регистрацию от имени пользователя графического сеанса. Не запускайте его от root.
+Для macOS нужны `macdeployqt`, Python 3, Swift, `pkgbuild` и `hdiutil`. При упаковке проверяются подписи пакетов приложения; неразрешённые зависимости Qt и ссылки на внешнюю установку Qt отклоняются. Linux требует `dpkg-dev` и сведения о зависимостях времени выполнения. Его установщик использует apt для установки DEB и нужных библиотек Qt, затем открывает регистрацию от имени пользователя графического сеанса. Не запускайте его от root.
 
-PKG для macOS устанавливает приложение в `/Applications` и открывает регистрацию в сеансе вошедшего пользователя. Windows устанавливает приложение в локальный каталог Programs текущего пользователя и предлагает открыть регистрацию на последней странице. Автозапуск настраивается мастером регистрации от имени реального пользователя компьютера, а не пользователя сборки или системного установщика.
+DMG для macOS содержит один установщик с радиокнопками установки / переустановки и удаления. Он устанавливает приложение в `/Applications` и открывает регистрацию в сеансе вошедшего пользователя. Windows устанавливает приложение в локальный каталог Programs текущего пользователя и предлагает открыть регистрацию на последней странице. Автозапуск настраивается мастером регистрации от имени реального пользователя компьютера, а не пользователя сборки или системного установщика.
 
-Упаковка Android принимает ровно один устанавливаемый подписанный APK из чистой сборки с одной конфигурацией и ABI. Qt/Gradle подписывают отладочные APK для тестирования. Выпускную сборку перед упаковкой нужно подписать с помощью настроек подписи Qt для Android. Сохраняйте постоянный ключ подписи для последующих обновлений. ZIP установщика содержит APK и скрипты для командной строки и PowerShell; ему нужны adb и отладка USB. Сам APK можно установить на телефоне напрямую, без adb.
+Упаковка Android принимает ровно один устанавливаемый подписанный APK из чистой сборки с одной конфигурацией и ABI. Qt/Gradle подписывают отладочные APK для тестирования. Выпускную сборку перед упаковкой нужно подписать с помощью описанных ниже переменных подписи выпуска. Сохраняйте постоянный ключ подписи для последующих обновлений. ZIP установщика содержит APK и скрипты для командной строки и PowerShell; ему нужны adb и отладка USB. Сам APK можно установить на телефоне напрямую, без adb.
 
-Для распространения через инфраструктуру Apple задайте `MACOS_APP_SIGN_IDENTITY` и `MACOS_INSTALLER_SIGN_IDENTITY`; нотариализуйте полученные артефакты отдельно. По умолчанию для локального использования приложение подписывается ad-hoc, а PKG остаётся неподписанным. Настройка Android SDK/NDK описана в [зависимостях](../dependencies/README.md#русская-версия).
+Для распространения через инфраструктуру Apple задайте `MACOS_APP_SIGN_IDENTITY` и `MACOS_INSTALLER_SIGN_IDENTITY`; нотариализуйте полученные артефакты отдельно. По умолчанию для локального использования приложение подписывается ad-hoc, а внутренние пакеты PKG остаются неподписанными. Настройка Android SDK/NDK описана в [зависимостях](../dependencies/README.md#русская-версия).
 
 ### Подпись выпускной сборки Android
 
 CI собирает отладочные APK. Для выпуска задайте в приватном окружении
 `LC_ANDROID_KEYSTORE`, `LC_ANDROID_KEY_ALIAS`, `LC_ANDROID_STORE_PASSWORD` и
 `LC_ANDROID_KEY_PASSWORD`, затем выполните `./scripts/build -t android -c Release`.
-Подпись выполняет apksigner с чтением паролей через окружение; перед упаковкой
+Подпись выполняет `apksigner` с чтением паролей через окружение; перед упаковкой
 проверяются подпись и выравнивание ZIP. Без этих переменных `-n` может собрать
 неподписанный Release, но для упаковки нужен подписанный APK. Для обновлений
 сохраняйте один ключ. См. [проверки выпуска](../SECURITY.md#русская-версия).
@@ -184,12 +189,12 @@ export QT_HOST_PATH="$HOME/Qt/6.11.2/macos"
 
 ### Языки установщиков и удаление
 
-Оба языка включены в приложение при компиляции, без Qt Linguist и отдельной загрузки переводов. Каждая форма регистрации предлагает «Русский / English» и сохраняет выбор для следующих запусков. NSIS явно предлагает оба языка и передаёт выбор приложению. Установщики для командной строки принимают `LC_LANGUAGE=ru|en` или предлагают выбрать язык в терминале. PKG для macOS включает страницы приветствия `en.lproj` и `ru.lproj`; мастер регистрации при первом запуске предлагает явный выбор языка.
+Оба языка включены в приложение при компиляции, без Qt Linguist и отдельной загрузки переводов. Каждая форма регистрации предлагает «Русский / English» и сохраняет выбор для следующих запусков. NSIS явно предлагает оба языка и передаёт выбор приложению. Установщики для командной строки принимают `LC_LANGUAGE=ru|en` или предлагают выбрать язык в терминале. Мастер в DMG для macOS явно предлагает русский и английский языки и передаёт выбранный язык приложению.
 
-Тот же установщик выполняет переустановку и удаление. На macOS действия в PKG взаимоисключающие: выбор удаления отключает установку файлов приложения и запускает защищённый проверками компонент удаления, содержащий только скрипт. Если приложение не установлено, удаление недоступно. ZIP содержит только основное приложение. При удалении также убираются отдельные приложения удаления из старых сборок. PKG сохраняет пользовательские данные и удаляет запись launchd текущего пользователя.
+Тот же установщик выполняет переустановку и удаление. На macOS радиокнопки в мастере DMG выбирают одну операцию: установку / переустановку либо удаление. При удалении запускается отдельный внутренний пакет с защищённым проверками скриптом. Если приложение не установлено, удаление недоступно. ZIP содержит только основное приложение. При удалении также убираются отдельные приложения удаления из старых сборок. Мастер сохраняет пользовательские данные и удаляет запись launchd текущего пользователя.
 
 NSIS обнаруживает сохранённый каталог установки Windows и передаёт удаление установленному деинсталлятору, включая диалог необязательного стирания данных. Linux проверяет состояние DEB перед предложением переустановки, удаления или отмены. Android проверяет выбранное устройство через adb; iOS запрашивает список приложений через devicectl, если задан `IOS_DEVICE_ID`. Удаление на телефоне требует подтверждения `DELETE`. Скрипты для командной строки принимают `LC_ACTION` для явного выбора действия; PowerShell для Android принимает `-Action`. Переустановка сохраняет данные. Всё это включено в существующую цель `installers`: число результатов остаётся равным пяти пакетам и пяти установщикам.
 
-Команда `python3 tests/PackagingTests.py` проверяет параметры устройств, подтверждение и защиту путей удаления macOS, не удаляя реальную установку и не обращаясь к устройству. Тесты Qt проверяют сохранение языка, ошибочную регистрацию, размещение элементов на экранах шириной 360 и 520 пикселей с обычным и увеличенным текстом, команду завершения экземпляра через IPC и фоновую синхронизацию.
+Команда `python3 tests/PackagingTests.py` проверяет параметры устройств, подтверждение и защиту путей удаления macOS, не удаляя реальную установку и не обращаясь к устройству. Тесты Qt проверяют сохранение языка без очистки полей регистрации, ошибочную регистрацию, общий интерфейс на экранах шириной 320, 412 и 1000 пикселей на обоих языках, подключение по QR, ввод переключателей, команду завершения экземпляра через IPC и фоновую синхронизацию.
 
-Для сканирования QR камерой установите Qt Multimedia в каждом комплекте Qt для целевой платформы. ZXing-C++ собирается из включённых исходников без загрузок из сети.
+Команда `python3 scripts/check-readmes` проверяет языковые разделы всех README, соответствие команд и ссылок, а также выявляет английские абзацы после разделителя русской версии.

@@ -13,7 +13,7 @@ jobs:
       - name: Build instrumented code, including bundled parsers and crypto
         run: |
           cmake -S . -B build_security -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DLOCALCLIPBOARD_SANITIZERS=ON
-          cmake --build build_security --parallel 4 --target clipboard_tests app_tests
+          cmake --build build_security --parallel 4 --target clipboard_tests app_tests mobile_tests
       - name: Run security and application regressions
         # Qt's offscreen plugin retains process-global objects. Memory access and UB checks remain active.
         env:

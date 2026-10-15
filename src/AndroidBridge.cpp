@@ -84,7 +84,15 @@ void AndroidBridge::consumeInbox(const Profile &p, QObject *owner, const std::fu
         return QJsonObject();
     }, apply);
 }
-void AndroidBridge::acknowledgeInbox() { QFile::remove(path("inbox-claimed.json")); }
+bool AndroidBridge::hasPendingInbox() { return QFile::exists(path("inbox.json")) || QFile::exists(path("inbox-claimed.json")); }
+bool AndroidBridge::takeCopyRequest() { return QJniObject::callStaticMethod<jboolean>(Bridge, "takeCopyRequest", "()Z"); }
+void AndroidBridge::notificationSettings() {
+    QJniObject::callStaticMethod<void>(Bridge, "notificationSettings", "(Landroid/content/Context;)V", QNativeInterface::QAndroidApplication::context().object());
+}
+void AndroidBridge::acknowledgeInbox() {
+    QFile::remove(path("inbox-claimed.json"));
+    if (!hasPendingInbox()) QJniObject::callStaticMethod<void>(Bridge, "clearReceivedNotification", "(Landroid/content/Context;)V", QNativeInterface::QAndroidApplication::context().object());
+}
 bool AndroidBridge::consumeShares(QObject *owner, const std::function<void(const QJsonObject &)> &send, const std::function<void(const QString &)> &error) {
     const auto shared = QJniObject::callStaticObjectMethod(Bridge, "takeShare", "()Ljava/lang/String;");
     if (!shared.isValid() || shared.toString().isEmpty()) return false;

@@ -10,7 +10,6 @@ namespace Ui {
 void initialize();
 bool touchMode();
 void prepareWindow(QWidget *widget);
-void showWindow(QWidget *widget);
 void enableTouchScroll(QScrollArea *scroll);
 QComboBox *comboBox(QWidget *parent);
 

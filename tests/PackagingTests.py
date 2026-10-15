@@ -43,6 +43,41 @@ class PackagingTests(unittest.TestCase):
     def commands(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
 
+    def test_qml_deployment_includes_imports_without_unrelated_nested_styles(self):
+        qml = self.directory / 'Qt qml'
+        for module in ('QtQuick', 'QtQuick/Controls', 'QtQuick/Controls/Basic', 'QtQuick/Controls/Fusion'):
+            directory = qml / module
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / 'qmldir').write_text('module ' + module.replace('/', '.'))
+            (directory / 'plugin.dylib').write_bytes(b'plugin')
+        (qml / 'QtQuick/assets').mkdir()
+        (qml / 'QtQuick/assets/icon.png').write_bytes(b'asset')
+        (qml / 'QtQuick/plugin.dSYM').mkdir()
+        (qml / 'QtQuick/plugin.dSYM/symbols').write_bytes(b'debug symbols')
+        scanner = self.directory / 'qmlimportscanner'
+        imports = [{'type': 'module', 'name': name.replace('/', '.'), 'path': str(qml / name), 'relativePath': name}
+                   for name in ('QtQuick', 'QtQuick/Controls/Basic')]
+        scanner.write_text('#!/usr/bin/env python3\nprint(' + repr(json.dumps(imports)) + ')\n')
+        scanner.chmod(0o755)
+        qtpaths = self.directory / 'bin/qtpaths'
+        qtpaths.write_text('#!/usr/bin/env python3\nimport sys\nprint(' + repr(str(qml)) +
+                           ' if sys.argv[-1] == "QT_INSTALL_QML" else ' + repr(str(self.directory)) + ')\n')
+        qtpaths.chmod(0o755)
+        output = self.directory / 'deployment'
+        command = [sys.executable, str(ROOT / 'scripts/prepare-qml-imports'), str(ROOT / 'qml'), str(output)]
+        result = subprocess.run(command, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((output / 'QtQuick/Controls/Basic/plugin.dylib').read_bytes(), b'plugin')
+        self.assertEqual((output / 'QtQuick/assets/icon.png').read_bytes(), b'asset')
+        self.assertFalse((output / 'QtQuick/Controls/qmldir').exists())
+        self.assertFalse((output / 'QtQuick/Controls/Fusion').exists())
+        self.assertFalse((output / 'QtQuick/plugin.dSYM').exists())
+        scanner.write_text('#!/usr/bin/env python3\nprint(\'[{' +
+                           '"type":"module","name":"QtMissing"' + '}]\')\n')
+        result = subprocess.run(command, env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Unresolved QML import: QtMissing', result.stderr)
+
     def test_windows_packaging_finds_nsis_and_preserves_paths_with_spaces(self):
         repository = self.directory / 'repository with spaces'
         for name in ('scripts', 'third_party/monocypher', 'third_party/zxing', 'packaging/windows', 'build/Release'):

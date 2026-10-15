@@ -125,9 +125,6 @@ void Ui::prepareWindow(QWidget *widget) {
     widget->setWindowFlags((widget->windowFlags() & ~Qt::WindowType_Mask) | Qt::Window);
     widget->setWindowState(Qt::WindowMaximized);
 }
-void Ui::showWindow(QWidget *widget) {
-    if (touchMode()) widget->showMaximized(); else widget->show();
-}
 void Ui::enableTouchScroll(QScrollArea *scroll) {
     if (!touchMode()) return;
     QScroller::grabGesture(scroll->viewport(), QScroller::TouchGesture);

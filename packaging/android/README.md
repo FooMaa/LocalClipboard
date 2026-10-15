@@ -1,3 +1,5 @@
+# LocalClipboard for Android
+
 Install on the phone directly by opening LocalClipboard.apk and permitting installation
 from your file manager, or use install.sh / install.ps1 on a computer with Android
 platform-tools (adb) and an authorized USB-debugging connection. An optional device
@@ -38,7 +40,8 @@ The installer also explains insufficient storage and incompatible APK architectu
 Incoming items have a separate high-importance notification channel,
 **Received clipboard**. Permit notifications and enable pop-up notifications for
 this channel in Android's app settings (on Samsung: notification categories).
-The foreground service's permanent status notification remains quiet. Android's
+Tap **Copy** in the notification or **Copy received clipboard** in the app. Opening
+the app alone never replaces the clipboard. The foreground service's permanent status notification remains quiet. Android's
 Do Not Disturb mode and your notification settings still control banners/sound.
 Received file decoding, file reads and outgoing encoding run on workers; the
 interface does not rebuild the device list when nothing has changed.
@@ -50,11 +53,13 @@ On your registered device, open **Connect device…**. In the phone's registrati
 wizard, tap **Scan QR code**, allow camera access, scan and confirm **Register**.
 You can also scan a QR shown on this phone from another device. Use **Read QR from
 image…** if a camera is unavailable. Keep the QR private: it grants access to your
-personal profile. For an already registered phone, open **Change profile…** first.
+personal profile. It also includes local IPv4 addresses; registration applies the key
+and addresses together. Legacy connection codes require manual addresses.
+For an already registered phone, open **Change profile…** first.
 Android uses its native Camera2 preview and a background QR decoder. The scanner
 reopens the camera after returning from the image picker or system settings.
 Camera access is released when the scanner leaves the foreground; no photos are
-recorded by live scanning. Choice fields use native Android radio-button dialogs.
+recorded by live scanning. The main interface uses large explicit choice buttons; native scanner dialogs use radio buttons.
 
 ---
 
@@ -78,10 +83,10 @@ recorded by live scanning. Choice fields use native Android radio-button dialogs
 
 ### Уведомления и отзывчивость
 
-Для входящих элементов есть отдельный канал высокой важности **«Получение буфера»**. Разрешите уведомления и всплывающие уведомления этого канала в системных настройках приложения; на Samsung это категории уведомлений. Постоянное уведомление фоновой службы остаётся тихим. Режим «Не беспокоить» и системные настройки продолжают управлять баннерами и звуком. Декодирование полученных файлов, чтение файлов и подготовка отправки выполняются в рабочих потоках; список устройств не пересоздаётся, если он не изменился.
+Для входящих элементов есть отдельный канал высокой важности **«Получение буфера»**. Разрешите уведомления и всплывающие уведомления этого канала в системных настройках приложения; на Samsung это категории уведомлений. Нажмите **«Скопировать»** в уведомлении или **«Скопировать полученный буфер»** в приложении. Простое открытие приложения не заменяет буфер. Постоянное уведомление фоновой службы остаётся тихим. Режим «Не беспокоить» и системные настройки продолжают управлять баннерами и звуком. Декодирование полученных файлов, чтение файлов и подготовка отправки выполняются в рабочих потоках; список устройств не пересоздаётся, если он не изменился.
 
 ### Подключение по QR-коду
 
-На зарегистрированном устройстве откройте **«Подключить устройство…»**. В мастере регистрации телефона нажмите **«Сканировать QR-код»**, разрешите доступ к камере, отсканируйте код и подтвердите регистрацию. QR можно показать и на телефоне, чтобы считать его с другого устройства. Если камера недоступна, выберите **«Считать QR из изображения…»**. Не передавайте QR посторонним: он даёт доступ к личному профилю. На уже зарегистрированном телефоне сначала откройте **«Сменить профиль…»**.
+На зарегистрированном устройстве откройте **«Подключить устройство…»**. В мастере регистрации телефона нажмите **«Сканировать QR-код»**, разрешите доступ к камере, отсканируйте код и подтвердите регистрацию. QR можно показать и на телефоне, чтобы считать его с другого устройства. Если камера недоступна, выберите **«Считать QR из изображения…»**. Не передавайте QR посторонним: он даёт доступ к личному профилю. Он также содержит локальные IPv4-адреса: регистрация применяет ключ и адреса вместе. Для старых кодов подключения адреса вводятся вручную. На уже зарегистрированном телефоне сначала откройте **«Сменить профиль…»**.
 
-На Android используется нативный предпросмотр Camera2 и распознавание QR в рабочем потоке. Камера открывается снова после возвращения из выбора изображения или системных настроек и освобождается при уходе сканера в фон. При сканировании в реальном времени фотографии не сохраняются. Варианты в полях выбираются через системные диалоги Android с переключателями.
+На Android используется нативный предпросмотр Camera2 и распознавание QR в рабочем потоке. Камера открывается снова после возвращения из выбора изображения или системных настроек и освобождается при уходе сканера в фон. При сканировании в реальном времени фотографии не сохраняются. В основном интерфейсе используются крупные кнопки явного выбора, а в системных диалогах сканера — радиокнопки.

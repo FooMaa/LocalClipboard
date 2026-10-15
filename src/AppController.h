@@ -3,7 +3,7 @@
 #include <QImage>
 #include <QVariantList>
 
-class MobileController final : public QObject {
+class AppController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool registered READ registered NOTIFY profileChanged)
     Q_PROPERTY(QString ownerName READ ownerName NOTIFY profileChanged)
@@ -18,8 +18,11 @@ class MobileController final : public QObject {
     Q_PROPERTY(QVariantList receivedFiles READ receivedFiles NOTIFY filesChanged)
     Q_PROPERTY(bool loadingFiles READ loadingFiles NOTIFY filesChanged)
     Q_PROPERTY(QString sharedDescription READ sharedDescription NOTIFY shareChanged)
+    Q_PROPERTY(bool receiving READ receiving NOTIFY stateChanged)
+    Q_PROPERTY(bool pendingClipboard READ pendingClipboard NOTIFY stateChanged)
+    Q_PROPERTY(QString localAddresses READ localAddresses NOTIFY stateChanged)
 public:
-    explicit MobileController(const Profile &profile, QObject *parent = nullptr);
+    explicit AppController(const Profile &profile, QObject *parent = nullptr);
     bool registered() const { return m_session.profile().registered(); }
     QString ownerName() const { return m_session.profile().ownerName; }
     QString deviceName() const { return m_session.profile().deviceName; }
@@ -35,12 +38,21 @@ public:
     QVariantList receivedFiles() const { return m_files; }
     bool loadingFiles() const { return m_loadingFiles; }
     QString sharedDescription() const { return m_session.sharedDescription(); }
+    bool receiving() const { return m_session.receiving(); }
+    bool pendingClipboard() const { return m_session.pendingClipboard(); }
+    Q_INVOKABLE void copyReceivedClipboard() { m_session.copyReceivedClipboard(); }
+    QString localAddresses() const;
+    void importFiles(const QList<QUrl> &urls);
     Q_INVOKABLE void finishShare(bool send) { m_session.finishShare(send); }
     QImage qrImage() const;
     Q_INVOKABLE bool registerDevice(const QString &owner, const QString &device, bool join, const QString &code);
     Q_INVOKABLE void sendClipboard() { m_session.sendClipboard(); }
     Q_INVOKABLE void pickFiles();
     Q_INVOKABLE QString scanQr();
+    Q_INVOKABLE QVariantMap parseConnection(const QString &text) const;
+    Q_INVOKABLE void uninstall();
+    Q_INVOKABLE void quit();
+    Q_INVOKABLE void notificationSettings();
     Q_INVOKABLE QString invitation() const;
     Q_INVOKABLE void copyInvitation();
     Q_INVOKABLE void saveQr();
@@ -63,4 +75,5 @@ private:
     QVariantList m_files;
     QStringList m_filePaths;
     bool m_loadingFiles = false;
+    QList<QUrl> m_pendingImports;
 };

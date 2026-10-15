@@ -29,6 +29,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class ClipboardActivity extends QtActivity {
     private static final AtomicReference<String> pendingShare = new AtomicReference<>("");
     private static final AtomicBoolean importing = new AtomicBoolean(false);
+    private static final AtomicBoolean copyRequested = new AtomicBoolean(false);
+    static void requestCopy() { copyRequested.set(true); }
+    public static boolean takeCopyRequest() { return copyRequested.getAndSet(false); }
+    public static void clearReceivedNotification(Context context) {
+        context.getSystemService(android.app.NotificationManager.class).cancel(2);
+    }
+    public static void notificationSettings(Context context) {
+        Intent settings = new Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.getPackageName())
+                .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, "clipboard-received-v2")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(settings);
+    }
     private final ExecutorService importer = Executors.newSingleThreadExecutor();
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);

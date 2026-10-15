@@ -19,6 +19,8 @@ public:
     QString sharedDescription() const;
     void finishShare(bool send);
     bool receiving() const;
+    bool pendingClipboard() const;
+    void copyReceivedClipboard();
     void replaceProfile(const Profile &profile);
     bool saveProfile(const Profile &profile);
     bool setPaused(bool paused);
@@ -48,5 +50,6 @@ private:
     quint64 m_revision = 0;
     bool m_applying = false, m_loadingInbox = false, m_preparingSend = false;
     bool m_loadingPeers = false, m_loadingShares = false;
+    bool m_pendingInbox = false;
     std::function<void()> m_pendingApply;
 };

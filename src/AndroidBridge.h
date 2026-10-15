@@ -8,6 +8,9 @@ class QCoreApplication;
 class QWidget;
 class QObject;
 namespace AndroidBridge {
+bool hasPendingInbox();
+bool takeCopyRequest();
+void notificationSettings();
 QString installationLanguage();
 void setLanguage(const QString &language);
 bool setEnabled(bool enabled);

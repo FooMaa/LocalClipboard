@@ -1,9 +1,8 @@
 #include "Autostart.h"
-#include "ClipboardSync.h"
+#include "AppWindow.h"
+#include "AppUi.h"
 #include "Profile.h"
-#include "Registration.h"
 #include "I18n.h"
-#include "Ui.h"
 #include "Uninstall.h"
 #include <QApplication>
 #include <QDir>
@@ -43,7 +42,6 @@ public:
 #endif
 #ifdef Q_OS_ANDROID
 #include "AndroidBridge.h"
-#include "MobileApp.h"
 #endif
 
 namespace {
@@ -73,7 +71,7 @@ int main(int argc, char *argv[]) {
     if (requestedLanguage.isEmpty()) requestedLanguage = AndroidBridge::installationLanguage();
 #endif
     I18n::initialize(requestedLanguage);
-    Ui::initialize();
+    initializeAppUi();
     QIcon appIcon;
     for (int size : {32, 64, 128, 256})
         appIcon.addFile(QString(":/icons/localclipboard-%1.png").arg(size));
@@ -81,10 +79,6 @@ int main(int argc, char *argv[]) {
 #ifdef Q_OS_ANDROID
     AndroidBridge::setLanguage(I18n::language());
     QObject::connect(&I18n::instance(), &I18n::languageChanged, &app, [] { AndroidBridge::setLanguage(I18n::language()); });
-#endif
-// Android uses the GPU-rendered Quick interface; Widgets remain the desktop/iOS view.
-#ifdef Q_OS_ANDROID
-    return runMobileApp(app);
 #endif
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     if (app.arguments().contains("--quit")) return Uninstall::requestQuit() ? 0 : 1;
@@ -117,19 +111,20 @@ int main(int argc, char *argv[]) {
 #ifdef Q_OS_IOS
     profile.autostart = false;
 #endif
-    if (!profile.registered()) {
-        if (app.arguments().contains("--background") || app.arguments().contains("--session-start")) return 0;
-        if (!registerDevice(&profile)) return 0;
-    }
+    const bool background = app.arguments().contains("--background") || app.arguments().contains("--session-start");
+    if (!profile.registered() && background) return 0;
+    AppWindow window(profile, background);
+    if (!window.window()) return 1;
     QString error;
-    if (!Autostart::setEnabled(profile.autostart, &error) && !app.arguments().contains("--background"))
-        QMessageBox::warning(nullptr, I18n::text("Autostart"), I18n::text(error));
-    ClipboardSync window(profile);
+#ifdef Q_OS_ANDROID
+    if (profile.registered() && !profile.save(&error)) window.controller()->report(error);
+#endif
+    if (profile.registered() && !Autostart::setEnabled(profile.autostart, &error)) window.controller()->report(error);
 #ifdef Q_OS_IOS
-    app.onFiles = [&window](const QList<QUrl> &urls) { window.importFiles(urls); };
-    app.onImportError = [&window](const QString &error) { QMessageBox::warning(&window, I18n::text("Import"), I18n::text(error)); };
-    if (!app.pendingFiles.isEmpty()) { window.importFiles(app.pendingFiles); app.pendingFiles.clear(); }
-    if (!app.importError.isEmpty()) QMessageBox::warning(&window, I18n::text("Import"), I18n::text(app.importError));
+    app.onFiles = [&window](const QList<QUrl> &urls) { window.controller()->importFiles(urls); };
+    app.onImportError = [&window](const QString &error) { window.controller()->report(error); };
+    if (!app.pendingFiles.isEmpty()) { window.controller()->importFiles(app.pendingFiles); app.pendingFiles.clear(); }
+    if (!app.importError.isEmpty()) window.controller()->report(app.importError);
 #endif
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     QObject::connect(&ipc, &QLocalServer::newConnection, &window, [&] {
@@ -148,6 +143,6 @@ int main(int argc, char *argv[]) {
         }
     });
 #endif
-    if (!app.arguments().contains("--background") && !app.arguments().contains("--session-start")) Ui::showWindow(&window);
+    if (!background) window.showSettings();
     return app.exec();
 }

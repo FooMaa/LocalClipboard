@@ -12,6 +12,7 @@ Button {
     rightPadding: 20
     topPadding: 14
     bottomPadding: 14
+    hoverEnabled: true
     opacity: enabled ? 1 : 0.45
     font.pixelSize: 16
     font.weight: Font.DemiBold
@@ -27,7 +28,7 @@ Button {
     }
     background: Rectangle {
         radius: 18
-        color: control.down ? Theme.line : control.primary ? Theme.accent : control.subtle ? "transparent" : Theme.elevated
+        color: control.down ? Theme.line : control.primary ? Theme.accent : control.hovered ? Theme.line : control.subtle ? "transparent" : Theme.elevated
         border.width: control.visualFocus ? 2 : 0
         border.color: Theme.accent
     }

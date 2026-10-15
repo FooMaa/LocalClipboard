@@ -1,10 +1,14 @@
-#include "MobileController.h"
+#include "AppController.h"
 #include "Async.h"
 #include "Autostart.h"
 #include "I18n.h"
 #include "QrCode.h"
 #include "QrScanner.h"
 #include "FileStorage.h"
+#include "ConnectionInfo.h"
+#include "ClipboardPayload.h"
+#include "Uninstall.h"
+#include <QPointer>
 #include <QApplication>
 #include <QClipboard>
 #include <QDesktopServices>
@@ -15,14 +19,18 @@
 #ifdef Q_OS_ANDROID
 #include "AndroidBridge.h"
 #endif
+#ifdef Q_OS_IOS
+#include "IOSBridge.h"
+#endif
 
-MobileController::MobileController(const Profile &profile, QObject *parent)
+AppController::AppController(const Profile &profile, QObject *parent)
     : QObject(parent), m_session(profile, this) {
-    connect(&m_session, &ClipboardSession::profileChanged, this, &MobileController::profileChanged);
-    connect(&m_session, &ClipboardSession::stateChanged, this, &MobileController::stateChanged);
-    connect(&m_session, &ClipboardSession::messageChanged, this, &MobileController::messageChanged);
-    connect(&m_session, &ClipboardSession::busyChanged, this, &MobileController::busyChanged);
-    connect(&m_session, &ClipboardSession::shareChanged, this, &MobileController::shareChanged);
+    connect(&m_session, &ClipboardSession::profileChanged, this, &AppController::profileChanged);
+    connect(&m_session, &ClipboardSession::stateChanged, this, &AppController::stateChanged);
+    connect(&m_session, &ClipboardSession::messageChanged, this, &AppController::messageChanged);
+    connect(&m_session, &ClipboardSession::busyChanged, this, &AppController::busyChanged);
+    connect(&m_session, &ClipboardSession::shareChanged, this, &AppController::shareChanged);
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, &AppController::stateChanged);
     connect(&I18n::instance(), &I18n::languageChanged, this, [this] {
 #ifdef Q_OS_ANDROID
         AndroidBridge::setLanguage(I18n::language());
@@ -30,42 +38,83 @@ MobileController::MobileController(const Profile &profile, QObject *parent)
         emit languageChanged(); emit messageChanged();
     });
 }
-QString MobileController::message() const { return I18n::text(m_session.message()); }
-QString MobileController::language() const { return I18n::language(); }
-void MobileController::setLanguage(const QString &language) { I18n::setLanguage(language); }
-bool MobileController::registerDevice(const QString &owner, const QString &device, bool join, const QString &code) {
+QString AppController::message() const { return I18n::text(m_session.message()); }
+QString AppController::language() const { return I18n::language(); }
+void AppController::setLanguage(const QString &language) { I18n::setLanguage(language); }
+bool AppController::registerDevice(const QString &owner, const QString &device, bool join, const QString &code) {
     Profile next = m_session.profile();
     next.ownerName = owner.trimmed(); next.deviceName = device.trimmed(); next.paused = false;
     if (next.ownerName.isEmpty() || next.deviceName.isEmpty() || next.ownerName.size() > 80 || next.deviceName.size() > 80) {
         m_session.report("Enter your name and a device name."); return false;
     }
     if (join) {
-        if (!next.join(code)) { m_session.report("Enter the complete connection code from your other device."); return false; }
-    } else next.create();
+        ConnectionInfo info;
+        if (!ConnectionInfo::parse(code, &info) || !next.join(info.code)) { m_session.report("Enter the complete connection code from your other device."); return false; }
+        next.peerAddresses = info.addresses;
+    } else { next.create(); next.peerAddresses.clear(); }
+#ifdef Q_OS_IOS
+    next.autostart = false;
+#endif
     if (!m_session.saveProfile(next)) return false;
     QString error;
-    if (!Autostart::setEnabled(next.autostart, &error)) m_session.report(error);
+    if (next.autostart && !Autostart::setEnabled(true, &error)) m_session.report(error);
     else m_session.report("");
+    if (!m_pendingImports.isEmpty()) {
+        const auto imports = m_pendingImports; m_pendingImports.clear(); m_session.importFiles(imports);
+    }
     return true;
 }
-void MobileController::pickFiles() {
-    if (!registered() || paused() || busy()) return;
-    m_session.sendFiles(QFileDialog::getOpenFileUrls(nullptr, I18n::text("Select files or photos")));
+void AppController::importFiles(const QList<QUrl> &urls) {
+    if (registered()) { m_session.importFiles(urls); return; }
+    if (urls.size() > ClipboardPayload::MaxFiles - m_pendingImports.size()) {
+        report("Select between 1 and 32 files."); return;
+    }
+    m_pendingImports.append(urls);
+    report("Register this device first.");
 }
-QString MobileController::scanQr() { return QrScanner::scan(nullptr); }
-QString MobileController::invitation() const { return registered() ? m_session.profile().invitation() : QString(); }
-QImage MobileController::qrImage() const { return QrCode::encodeInvitation(invitation()); }
-void MobileController::copyInvitation() {
+void AppController::pickFiles() {
+    if (!registered() || paused() || busy()) return;
+#ifdef Q_OS_IOS
+    const QPointer<AppController> self(this);
+    IOSBridge::pickFiles(nullptr, [self](const QList<QUrl> &urls, const QString &error) {
+        if (!self) return;
+        if (!error.isEmpty()) self->report(error); else self->importFiles(urls);
+    });
+#else
+    m_session.sendFiles(QFileDialog::getOpenFileUrls(nullptr, I18n::text("Select files or photos")));
+#endif
+}
+QString AppController::scanQr() { return QrScanner::scan(nullptr); }
+QVariantMap AppController::parseConnection(const QString &text) const {
+    ConnectionInfo info;
+    if (!ConnectionInfo::parse(text, &info)) return {};
+    return {{"code", info.code}, {"addresses", info.addresses.join(' ')}, {"invitation", info.encoded()}};
+}
+QString AppController::localAddresses() const { return ConnectionInfo::forProfile(m_session.profile()).addresses.join(", "); }
+void AppController::uninstall() {
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
+    Uninstall::launch(nullptr);
+#endif
+}
+void AppController::quit() { QCoreApplication::quit(); }
+void AppController::notificationSettings() {
+#ifdef Q_OS_ANDROID
+    AndroidBridge::notificationSettings();
+#endif
+}
+QString AppController::invitation() const { return registered() ? m_session.profile().invitation() : QString(); }
+QImage AppController::qrImage() const { return registered() ? QrCode::encodeInvitation(ConnectionInfo::forProfile(m_session.profile()).encoded()) : QImage(); }
+void AppController::copyInvitation() {
     if (!registered()) return;
     QApplication::clipboard()->setText(invitation());
     m_session.report("Connection code copied. Keep it private.");
 }
-void MobileController::saveQr() {
+void AppController::saveQr() {
     if (!registered()) return;
     const QString path = QFileDialog::getSaveFileName(nullptr, I18n::text("Save QR image"), "LocalClipboard-connection.png", "PNG (*.png)");
     if (!path.isEmpty() && !qrImage().save(path, "PNG")) m_session.report("Could not save the QR image.");
 }
-bool MobileController::saveAddresses(const QString &value) {
+bool AppController::saveAddresses(const QString &value) {
     QStringList addresses; QString error;
     if (!Profile::parseAddresses(value, &addresses)) {
         m_session.report("Enter up to 32 valid IPv4 addresses."); return false;
@@ -73,7 +122,7 @@ bool MobileController::saveAddresses(const QString &value) {
     Profile next = m_session.profile(); next.peerAddresses = addresses;
     return m_session.saveProfile(next);
 }
-void MobileController::refreshFiles() {
+void AppController::refreshFiles() {
     if (m_loadingFiles) return;
     m_loadingFiles = true; emit filesChanged();
     const QString root = QDir(Profile::dataDirectory()).filePath("received");
@@ -94,7 +143,7 @@ void MobileController::refreshFiles() {
         m_loadingFiles = false; emit filesChanged();
     });
 }
-void MobileController::openReceivedFile(int index) {
+void AppController::openReceivedFile(int index) {
     if (index < 0 || index >= m_filePaths.size()) return;
     const QFileInfo file(m_filePaths.at(index));
     const QString root = QDir(Profile::dataDirectory()).filePath("received");
@@ -105,7 +154,7 @@ void MobileController::openReceivedFile(int index) {
     QDesktopServices::openUrl(QUrl::fromLocalFile(file.canonicalFilePath()));
 #endif
 }
-void MobileController::deleteReceivedFile(int index) {
+void AppController::deleteReceivedFile(int index) {
     if (index < 0 || index >= m_filePaths.size()) return;
     const QString path = m_filePaths.at(index);
     if (!FileStorage::isReceivedFile(path, QDir(Profile::dataDirectory()).filePath("received"))) return;

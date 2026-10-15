@@ -13,12 +13,12 @@ Flickable {
     clip: true
     Column {
         id: body
-        width: Math.min(flick.width - 40, 560)
+        width: Math.min(flick.width - 40, 720)
         x: (flick.width - width) / 2
         y: 12
         spacing: 20
     }
-    ScrollBar.vertical: ScrollBar { width: 3; interactive: false; Accessible.ignored: true }
+    ScrollBar.vertical: ScrollBar { width: Qt.platform.os === "android" || Qt.platform.os === "ios" ? 3 : 8; interactive: Qt.platform.os !== "android" && Qt.platform.os !== "ios"; Accessible.ignored: true }
     function revealEditor() {
         let editor = flick.Window.window ? flick.Window.window.activeFocusItem : null
         if (!editor || !editor.cursorRectangle || dragging || flicking) return

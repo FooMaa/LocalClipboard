@@ -5,6 +5,7 @@
 #include "SyncEngine.h"
 #include "FileStorage.h"
 #include "SecretStore.h"
+#include "ConnectionInfo.h"
 #include <QBuffer>
 #include <QFile>
 #include <QImage>
@@ -34,6 +35,25 @@ class CoreTests : public QObject {
         udp.writeDatagram(SecureProtocol::announcement(sender, port), QHostAddress::LocalHost, receiver.discoveryPort());
     }
 private slots:
+    void qrConnectionIncludesAddressesAndRejectsMalformedHints() {
+        const Profile source = profile();
+        const ConnectionInfo invitation{source.invitation(), {"192.168.1.20", "10.0.0.3"}};
+        ConnectionInfo decoded;
+        QVERIFY(ConnectionInfo::parse(invitation.encoded(), &decoded));
+        QCOMPARE(decoded.code, source.invitation()); QCOMPARE(decoded.addresses, invitation.addresses);
+        QVERIFY(ConnectionInfo::parse(source.invitation(), &decoded)); QVERIFY(decoded.addresses.isEmpty());
+        for (const QString &address : {"https://evil.example", "224.0.0.1", "255.255.255.255", "not-an-ip"}) {
+            const ConnectionInfo invalid{source.invitation(), {address}};
+            QVERIFY(!ConnectionInfo::parse(invalid.encoded(), &decoded));
+        }
+        QVERIFY(!ConnectionInfo::parse(QString(1025, 'x'), &decoded));
+        QVERIFY(!ConnectionInfo::parse("LCQR1.???", &decoded));
+        const ConnectionInfo duplicate{source.invitation(), {"192.168.1.20", "192.168.1.20"}};
+        QVERIFY(!ConnectionInfo::parse(duplicate.encoded(), &decoded));
+        QMimeData mime; mime.setText(invitation.encoded());
+        QString error;
+        QVERIFY(ClipboardPayload::capture(&mime, &error).isEmpty());
+    }
     void registrationAndPersistence() {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
