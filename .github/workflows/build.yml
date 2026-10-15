@@ -20,7 +20,8 @@ jobs:
         if: runner.os != 'Linux'
         with:
           version: '6.11.2'
-          modules: 'qtmultimedia'
+          # Qt 6.11 QML's asset downloader requires the separate TaskTree module.
+          modules: 'qtmultimedia qttasktree'
           setup-python: ${{ runner.os != 'Windows' }}
           # Released aqt 3.3.0 cannot read Windows Qt 6.11's per-architecture
           # repositories. Pin upstream's fix (aqtinstall PR #1000).
@@ -52,7 +53,10 @@ jobs:
         with:
           name: test-logs-${{ runner.os }}
           if-no-files-found: ignore
-          path: build_desktop/Testing/Temporary/*.log
+          path: |
+            build_desktop/Testing/Temporary/*.log
+            build_mobile_ui/Testing/Temporary/*.log
+            build_mobile_ui/CMakeFiles/CMakeConfigureLog.yaml
       - name: Test installer arguments and removal guards
         if: runner.os != 'Windows'
         run: python3 tests/PackagingTests.py
@@ -115,6 +119,7 @@ jobs:
           version: '6.11.2'
           target: android
           arch: android_arm64_v8a
+          modules: 'qttasktree'
           cache: true
       - name: Build APK and installer
         shell: bash
@@ -141,7 +146,7 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.11.2'
-          modules: 'qtmultimedia'
+          modules: 'qtmultimedia qttasktree'
           target: ios
           arch: ios
           cache: true

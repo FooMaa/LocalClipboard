@@ -6,6 +6,9 @@ Desktop macOS: install Homebrew and Xcode Command Line Tools, then
 
 Install Qt Multimedia for desktop and iOS kits. Android uses the native Camera2
 scanner and does not ship Qt Multimedia or FFmpeg.
+For Qt 6.11 kits, also install Qt TaskTree (`qttasktree`): the bundled QML asset
+downloader depends on it. Include it in both the target and desktop host kits,
+including the macOS kit used to test the Android interface preview.
 QR encoding/decoding uses the bundled ZXing-C++ sources; no QR library download is needed.
 
 Other Linux distributions: C++17 compiler, CMake >=3.21.1, Ninja (optional),
@@ -108,6 +111,8 @@ See [installation and device verification](../packaging/ios/README.md).
 Для компьютера с Linux (Debian/Ubuntu): `./dependencies/linux.sh`. Для macOS установите Homebrew и Xcode Command Line Tools, затем выполните `./dependencies/macos.sh`. Эти скрипты устанавливают пакеты и могут потребовать sudo.
 
 Установите Qt Multimedia для комплектов компьютеров и iOS. Android использует нативную камеру Camera2 и не включает Qt Multimedia или FFmpeg. Для генерации и распознавания QR используются включённые исходники ZXing-C++; отдельно скачивать библиотеку QR не нужно.
+
+Для комплектов Qt 6.11 также установите Qt TaskTree (`qttasktree`): от него зависит включённый в QML загрузчик ресурсов. Модуль нужен в целевом комплекте и комплекте компьютера с инструментами сборки, включая macOS-комплект для проверки предпросмотра интерфейса Android.
 
 Для других дистрибутивов Linux нужны компилятор C++17, CMake 3.21.1 или новее, Ninja при желании, Qt 6 Core, Network, Widgets, Multimedia, Test и плагины платформы. Для Windows нужны MSVC, Qt 6 для компьютеров и NSIS, например `choco install nsis`. Упаковка Linux использует `dpkg-dev`; macOS — `macdeployqt`, Python 3, `pkgbuild` и `productbuild` из инструментов разработки.
 
