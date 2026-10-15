@@ -69,7 +69,12 @@ SyncEngine::~SyncEngine() {
     m_stopping = true;
     // Dispose of sockets while counters and profile still exist (also when switching profiles).
     const auto sockets = findChildren<QTcpSocket *>(QString(), Qt::FindDirectChildrenOnly);
-    for (auto *socket : sockets) delete socket;
+    for (auto *socket : sockets) {
+        // A socket's base destructor may emit disconnected. No transfer updates
+        // or queue bookkeeping are needed while the engine itself is shutting down.
+        QObject::disconnect(socket, nullptr, this, nullptr);
+        delete socket;
+    }
 }
 void SyncEngine::setPaused(bool paused) {
     m_profile.paused = paused;

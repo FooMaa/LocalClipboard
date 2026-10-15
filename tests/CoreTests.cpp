@@ -372,6 +372,42 @@ private slots:
         QSignalSpy changes(&computer, &SyncEngine::peersChanged);
         QTest::qWait(100); QCOMPARE(changes.size(), 0);
     }
+    void activeTransferSocketDestruction_data() {
+        QTest::addColumn<bool>("destroyEngine");
+        QTest::newRow("socket-destroyed-before-engine") << false;
+        QTest::newRow("engine-destroyed-during-transfer") << true;
+    }
+    void activeTransferSocketDestruction() {
+        QFETCH(bool, destroyEngine);
+        Profile local = profile(), remote = profile(); remote.key = local.key;
+        // Keep the outgoing socket connected while the peer withholds its hello.
+        QTcpServer silentPeer; QVERIFY(silentPeer.listen(QHostAddress::LocalHost, 0));
+        auto sender = std::make_unique<SyncEngine>(local, nullptr, 0, 0);
+        introduce(*sender, remote, silentPeer.serverPort());
+        QTRY_COMPARE(sender->peerDescriptions().size(), 1);
+        QVERIFY(sender->send(text()));
+        QTRY_VERIFY(silentPeer.hasPendingConnections());
+        std::unique_ptr<QTcpSocket> incoming(silentPeer.nextPendingConnection());
+        const auto outgoing = sender->findChildren<QTcpSocket *>(QString(), Qt::FindDirectChildrenOnly);
+        QCOMPARE(outgoing.size(), 1);
+        QTRY_COMPARE(outgoing.first()->state(), QAbstractSocket::ConnectedState);
+        QSignalSpy changes(sender.get(), &SyncEngine::transfersChanged);
+        if (destroyEngine) {
+            sender.reset();
+            // Shutdown must not report an artificial transfer failure to the UI.
+            QCOMPARE(changes.size(), 0);
+        } else {
+            delete outgoing.first();
+            QCOMPARE(sender->transfers().first().toMap().value("state").toString(), QStringLiteral("failed"));
+            const auto id = sender->transfers().first().toMap().value("id").toString();
+            QVERIFY(sender->retry(id));
+            QTRY_VERIFY(silentPeer.hasPendingConnections());
+            std::unique_ptr<QTcpSocket> retried(silentPeer.nextPendingConnection());
+            sender->cancel(id);
+            QCOMPARE(sender->transfers().first().toMap().value("state").toString(), QStringLiteral("cancelled"));
+        }
+        QTRY_COMPARE(incoming->state(), QAbstractSocket::UnconnectedState);
+    }
     void qrDiscoveryOverTcpWithoutUdp_data() {
         QTest::addColumn<bool>("managed");
         QTest::newRow("legacy") << false;

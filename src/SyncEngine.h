@@ -43,7 +43,10 @@ signals:
     void message(const QString &text);
 private:
     struct Peer { QString id, name; QHostAddress address; quint16 port; qint64 seen; bool receipts = false; QByteArray publicKey; quint16 discoveryPort = 45871; };
-    struct Job { QString id, peer, name, state, error, description; int progress = 0; qint64 time = 0; QPointer<QTcpSocket> socket; QString kind; int items = 0; };
+    // disconnected can be emitted from QAbstractSocket's destructor, after the
+    // QTcpSocket subobject is gone but before QObject clears guarded pointers.
+    using SocketGuard = QPointer<QAbstractSocket>;
+    struct Job { QString id, peer, name, state, error, description; int progress = 0; qint64 time = 0; SocketGuard socket; QString kind; int items = 0; };
     void updateJob(const QString &id, const QString &state, int progress, const QString &error = {});
     bool sendControl(const Peer &peer, const QJsonObject &control);
     void loadDevices();
@@ -61,7 +64,7 @@ private:
     QTimer m_timer;
     QElapsedTimer m_clock;
     QHash<QString, Peer> m_peers;
-    QHash<QString, QPointer<QTcpSocket>> m_discoveryProbes;
+    QHash<QString, SocketGuard> m_discoveryProbes;
     qint64 m_lastDiscoveryError = -15000;
     int m_connections = 0;
     qint64 m_bufferedBytes = 0;
@@ -74,7 +77,7 @@ private:
     QString m_batchId;
     QHash<QString, QJsonObject> m_receipts;
     QHash<QString, qint64> m_receiptAttempts;
-    struct IncomingAck { QPointer<QTcpSocket> socket; Profile channel; QByteArray context; };
+    struct IncomingAck { SocketGuard socket; Profile channel; QByteArray context; };
     QHash<QString, IncomingAck> m_incomingAcks;
     QHash<QString, QString> m_completedIncoming;
     QStringList m_completedOrder;
