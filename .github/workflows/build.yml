@@ -12,11 +12,19 @@ jobs:
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: ./dependencies/linux.sh
+      - uses: actions/setup-python@v6
+        if: runner.os == 'Windows'
+        with:
+          python-version: '3.14'
       - uses: jurplel/install-qt-action@v4
         if: runner.os != 'Linux'
         with:
           version: '6.11.2'
           modules: 'qtmultimedia'
+          setup-python: ${{ runner.os != 'Windows' }}
+          # Released aqt 3.3.0 cannot read Windows Qt 6.11's per-architecture
+          # repositories. Pin upstream's fix (aqtinstall PR #1000).
+          aqtsource: ${{ runner.os == 'Windows' && 'git+https://github.com/miurahr/aqtinstall.git@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b' || '' }}
           cache: true
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
