@@ -5,6 +5,7 @@
 #include "ConnectionInfo.h"
 #include "QrCode.h"
 #include "SyncEngine.h"
+#include "FileStorage.h"
 #include <QClipboard>
 #include <QApplication>
 #include <QDir>
@@ -15,6 +16,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QFile>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -269,7 +271,17 @@ private slots:
         QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("test"); file.close();
         QTemporaryDir outside;
         QFile external(outside.filePath("private.txt")); QVERIFY(external.open(QIODevice::WriteOnly)); external.write("private"); external.close();
-        QVERIFY(QFile::link(external.fileName(), root + "/test-batch/link"));
+        // QFile creates a Windows shortcut, which requires the .lnk suffix.
+        // Unix creates a symbolic link; the same filename works there too.
+        const QString linkPath = root + "/test-batch/link.lnk";
+        QVERIFY(QFile::link(external.fileName(), linkPath));
+        const QFileInfo link(linkPath);
+#ifdef Q_OS_WIN
+        QVERIFY(link.isShortcut());
+#else
+        QVERIFY(link.isSymbolicLink());
+#endif
+        QVERIFY(!FileStorage::isReceivedFile(linkPath, root));
         AppController controller(profile()); QQmlApplicationEngine engine;
         configureAppEngine(engine, controller);
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
@@ -288,6 +300,7 @@ private slots:
         controller.deleteReceivedFile(-1); QVERIFY(file.exists());
         controller.deleteReceivedFile(0); QTRY_VERIFY(!file.exists());
         QVERIFY(external.exists());
+        QVERIFY(QFileInfo::exists(linkPath));
         QTRY_VERIFY(!controller.loadingFiles());
         QDir(root).removeRecursively(); // Unique test-mode application data only.
     }
