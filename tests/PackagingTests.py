@@ -54,6 +54,12 @@ class PackagingTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(variable, result.stderr)
 
+    def test_apple_network_privacy_metadata(self):
+        for name in ('packaging/macos/Info.plist', 'ios/Info.plist'):
+            with self.subTest(bundle=name):
+                info = plistlib.loads((ROOT / name).read_bytes())
+                self.assertTrue(info.get('NSLocalNetworkUsageDescription', '').strip())
+
     def test_macos_notarization_is_followed_by_stapling(self):
         artifact = self.directory / 'LocalClipboard installer.dmg'
         artifact.write_bytes(b'test artifact')

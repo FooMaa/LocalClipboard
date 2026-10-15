@@ -257,10 +257,11 @@ void AppController::checkNetwork() {
     const QJsonObject report{{"application", "LocalClipboard"}, {"version", QCoreApplication::applicationVersion()},
         {"qt", qVersion()}, {"os", QSysInfo::productType()}, {"osVersion", QSysInfo::productVersion()},
         {"registered", registered()}, {"managedAccess", managedAccess()}, {"receiving", receiving()},
+        {"accessState", accessState()}, {"knownDevices", devices().size()},
         {"paused", paused()}, {"sendingEnabled", sendingEnabled()}, {"receivingEnabled", receivingEnabled()},
         {"activeInterfaces", interfaces}, {"onlineDevices", peers().size()}, {"discoveryPort", 45871},
         {"historyEnabled", historyEnabled()}, {"time", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
-        {"guidance", "Use the same LAN, allow TCP/UDP in the firewall, and keep iOS open. Guest Wi-Fi may isolate devices."}};
+        {"guidance", "Use the same LAN, allow Local Network access in macOS Privacy & Security and TCP/UDP in the firewall, approve the device on the owner, and keep iOS open. Guest Wi-Fi or VPNs may isolate devices."}};
     m_diagnostics = QString::fromUtf8(QJsonDocument(report).toJson(QJsonDocument::Indented)); emit diagnosticsChanged();
 }
 void AppController::copyDiagnostics() { checkNetwork(); QApplication::clipboard()->setText(m_diagnostics); }

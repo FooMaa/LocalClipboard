@@ -41,5 +41,6 @@
     <key>NSAppleEventsUsageDescription</key>
     <string>LocalClipboard asks Finder to move its apps to Trash when you confirm uninstall. LocalClipboard запрашивает доступ к Finder для удаления приложения в Корзину после вашего подтверждения.</string>
 <key>NSCameraUsageDescription</key><string>Scan a LocalClipboard connection QR code. Сканирование QR-кода подключения LocalClipboard.</string>
+<key>NSLocalNetworkUsageDescription</key><string>Connect to your devices on the same network to exchange encrypted clipboard content. Подключение к вашим устройствам в локальной сети для обмена зашифрованным буфером.</string>
 </dict>
 </plist>

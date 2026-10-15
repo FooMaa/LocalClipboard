@@ -29,6 +29,8 @@ receipts, photo previews, retries, optional encrypted history and diagnostic rep
 
 ### Connect using a QR code
 
+On macOS, allow LocalClipboard in **System Settings → Privacy & Security → Local Network**. Addresses from QR also enable authenticated TCP `45872` discovery when UDP `45871` is filtered; update both applications. Network isolation and denied permissions still block connections. For LC3 profiles, approve the joining device under **Devices and access**.
+
 On a registered device, open **Connect device…** to display your profile's QR code.
 On the new device, tap **Scan QR code** in registration, allow camera access and
 scan the code, then confirm **Register**. This works on Android, iOS and all three
@@ -272,6 +274,8 @@ QR приватно; они исключены из автоматической
 отчёты описаны в [руководстве по возможностям и подписи](FEATURES.md#русская-версия).
 
 ### Подключение по QR-коду
+
+На macOS разрешите LocalClipboard доступ в **«Системные настройки → Конфиденциальность и безопасность → Локальная сеть»**. Адреса из QR также позволяют выполнять аутентифицированное обнаружение через TCP `45872`, если UDP `45871` фильтруется; обновите оба приложения. Изоляция сети и отказ в разрешении по-прежнему блокируют подключение. В профилях LC3 одобрите новое устройство в разделе **«Устройства и доступ»**.
 
 На зарегистрированном устройстве откройте **«Подключить устройство…»**, чтобы показать QR-код личного профиля. На новом устройстве нажмите **«Сканировать QR-код»** в мастере регистрации, разрешите доступ к камере, отсканируйте код и подтвердите регистрацию. Это доступно на Android, iOS, macOS, Windows и Linux. Уже зарегистрированное устройство может подключиться к другому профилю через **«Сменить профиль…»**.
 

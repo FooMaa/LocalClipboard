@@ -5,6 +5,7 @@ ScrollPage {
     required property QtObject controller
     BodyText { width: parent.width; text: qsTr("Network and diagnostics"); font.pixelSize: 28; font.weight: Font.DemiBold }
     BodyText { width: parent.width; text: qsTr("Use the same Wi-Fi, allow LocalClipboard through the firewall, and keep the iOS app open. Guest networks and VPNs may isolate devices."); color: Theme.muted }
+    BodyText { width: parent.width; text: qsTr("On Mac, allow LocalClipboard under System Settings → Privacy & Security → Local Network. After scanning, approve the new device under Devices and access."); color: Theme.muted }
     Card {
         width: parent.width
         ActionButton { width: parent.width; text: qsTr("Check network"); primary: true; onClicked: page.controller.checkNetwork() }

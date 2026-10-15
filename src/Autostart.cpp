@@ -62,6 +62,7 @@ bool Autostart::setEnabled(bool enabled, QString *error) {
     const QString xml = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
         "<plist version=\"1.0\"><dict><key>Label</key><string>org.localclipboard</string>"
+        "<key>AssociatedBundleIdentifiers</key><array><string>org.localclipboard</string></array>"
         "<key>ProgramArguments</key><array><string>%1</string><string>--background</string></array>"
         "<key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>"
         "<key>LimitLoadToSessionType</key><string>Aqua</string><key>ThrottleInterval</key><integer>5</integer>"

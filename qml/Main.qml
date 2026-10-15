@@ -23,6 +23,14 @@ ApplicationWindow {
     property string page: controller.registered ? "home" : "register"
     property bool changingProfile: false
     property int qrRevision: 0
+    readonly property int pendingApprovals: {
+        if (!controller.administrator) return 0
+        let count = 0
+        const devices = controller.devices
+        for (let i = 0; i < devices.length; ++i)
+            if (!devices[i].approved && !devices[i].revoked) ++count
+        return count
+    }
     // ApplicationWindow creates this internal Control in C++, outside QML's
     // componentComplete path. Initialize its accessibility attachment here too.
     Component.onCompleted: contentItem.parent.Accessible.name = title
@@ -172,7 +180,7 @@ ApplicationWindow {
                     ActionButton { width: parent.width; text: qsTr("Send files / photos…"); enabled: !controller.busy && !controller.paused && controller.sendingEnabled && controller.accessState === "approved"; onClicked: controller.pickFiles() }
                 }
                 ActionButton { width: parent.width; text: qsTr("Transfers"); onClicked: window.navigate("transfers") }
-                ActionButton { width: parent.width; text: qsTr("Devices and access"); onClicked: window.navigate("devices") }
+                ActionButton { width: parent.width; text: window.pendingApprovals ? qsTr("Devices waiting for approval: %1").arg(window.pendingApprovals) : qsTr("Devices and access"); primary: window.pendingApprovals > 0; onClicked: window.navigate("devices") }
                 ActionButton { width: parent.width; text: qsTr("Local history"); onClicked: window.navigate("history") }
                 Row {
                     width: parent.width
@@ -184,6 +192,8 @@ ApplicationWindow {
                     visible: controller.peers.length === 0
                     BodyText { width: parent.width; text: qsTr("Bring your devices together"); font.weight: Font.DemiBold }
                     BodyText { width: parent.width; text: qsTr("Open LocalClipboard on another device, connect to this profile and use the same Wi-Fi."); color: Theme.muted; font.pixelSize: 14 }
+                    BodyText { width: parent.width; text: qsTr("On Mac, allow LocalClipboard under System Settings → Privacy & Security → Local Network. After scanning, approve the new device under Devices and access."); color: Theme.muted; font.pixelSize: 14 }
+                    ActionButton { width: parent.width; text: qsTr("Check network"); onClicked: window.navigate("diagnostics") }
                     ActionButton { width: parent.width; text: qsTr("Connect device…"); onClicked: window.showPairing() }
                 }
                 Repeater {

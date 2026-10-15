@@ -21,7 +21,7 @@ constexpr int HelloBytes = 104;
 constexpr int ProofBytes = 68;
 constexpr qint64 TransferMemoryBudget = SecureProtocol::MaxWireBytes * 2LL;
 struct IncomingTransfer {
-    enum Phase { Proof, Length, Payload, Done } phase = Proof;
+    enum Phase { Proof, Discovery, Length, Payload, Done } phase = Proof;
     QByteArray sender;
     Profile channel;
     quint32 length = 0;
@@ -79,29 +79,96 @@ void SyncEngine::setPaused(bool paused) {
 }
 void SyncEngine::announce() {
     if (!m_profile.registered() || !m_server.isListening()) return;
-    if (m_discoveryPort == 0) { emit peersChanged(); return; }
     const QByteArray bytes = SecureProtocol::announcement(m_profile, port());
 #ifndef Q_OS_IOS
-    m_udp.writeDatagram(bytes, QHostAddress::Broadcast, m_discoveryPort);
+    if (m_discoveryPort) writeAnnouncement(bytes, QHostAddress::Broadcast, m_discoveryPort);
     // Directed broadcasts reach each active LAN when VPNs or multiple adapters are present.
     for (const auto &interface : QNetworkInterface::allInterfaces()) {
         if (!(interface.flags() & QNetworkInterface::IsUp) || (interface.flags() & QNetworkInterface::IsLoopBack)) continue;
         for (const auto &entry : interface.addressEntries()) {
             if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol && !entry.broadcast().isNull())
-                m_udp.writeDatagram(bytes, entry.broadcast(), m_discoveryPort);
+                if (m_discoveryPort) writeAnnouncement(bytes, entry.broadcast(), m_discoveryPort);
         }
     }
 #endif
-    for (const QString &address : m_profile.peerAddresses) contact(QHostAddress(address), m_discoveryPort);
+    for (const QString &address : m_profile.peerAddresses) {
+        const QHostAddress endpoint(address);
+        if (m_discoveryPort) contact(endpoint, m_discoveryPort);
+        bool recentlySeen = false;
+        for (const auto &peer : m_peers)
+            if (peer.address == endpoint && m_clock.elapsed() - peer.seen < 6000) recentlySeen = true;
+        if (!recentlySeen) contactTcp(endpoint);
+    }
     // A phone can initiate contact without receiving any broadcast traffic.
-    for (const auto &peer : m_peers) contact(peer.address, m_discoveryPort);
+    for (const auto &peer : m_peers) contact(peer.address, peer.discoveryPort);
     emit peersChanged();
 }
 void SyncEngine::contact(const QHostAddress &address, quint16 discoveryPort) {
     if (!m_profile.registered() || !m_server.isListening() || !discoveryPort
         || address.protocol() != QAbstractSocket::IPv4Protocol || address.isNull()
         || address.isMulticast() || address == QHostAddress::Broadcast) return;
-    m_udp.writeDatagram(SecureProtocol::announcement(m_profile, port()), address, discoveryPort);
+    writeAnnouncement(SecureProtocol::announcement(m_profile, port()), address, discoveryPort);
+}
+void SyncEngine::writeAnnouncement(const QByteArray &bytes, const QHostAddress &address, quint16 port) {
+    if (m_udp.writeDatagram(bytes, address, port) >= 0 || m_clock.elapsed() - m_lastDiscoveryError < 15000) return;
+    m_lastDiscoveryError = m_clock.elapsed();
+    emit message(m_udp.error() == QAbstractSocket::SocketAccessError
+        ? QStringLiteral("Local network access is blocked. Allow LocalClipboard in system privacy settings and check the firewall.")
+        : QStringLiteral("Discovery send failed: ") + m_udp.errorString());
+}
+void SyncEngine::contactTcp(const QHostAddress &address, quint16 transferPort) {
+    const QString endpoint = address.toString();
+    if (!m_profile.registered() || !m_server.isListening() || !transferPort || m_connections >= 4
+        || m_discoveryProbes.contains(endpoint) || address.protocol() != QAbstractSocket::IPv4Protocol
+        || address.isNull() || address.isMulticast() || address == QHostAddress::Broadcast) return;
+    auto *socket = new QTcpSocket(this);
+    m_discoveryProbes.insert(endpoint, socket); ++m_connections;
+    connect(socket, &QObject::destroyed, this, [this, endpoint] {
+        m_discoveryProbes.remove(endpoint); --m_connections;
+        if (!m_stopping) QTimer::singleShot(0, this, &SyncEngine::drainOutgoing);
+    });
+    socket->setReadBufferSize(HelloBytes);
+    auto *timeout = deadline(socket);
+    const auto sent = std::make_shared<bool>(false);
+    const auto length = std::make_shared<quint32>(0);
+    const auto receiver = std::make_shared<QString>();
+    connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+    connect(socket, &QTcpSocket::errorOccurred, socket, [this, socket](QAbstractSocket::SocketError error) {
+        if (error == QAbstractSocket::SocketAccessError && m_clock.elapsed() - m_lastDiscoveryError >= 15000) {
+            m_lastDiscoveryError = m_clock.elapsed();
+            emit message("Local network access is blocked. Allow LocalClipboard in system privacy settings and check the firewall.");
+        }
+        socket->deleteLater();
+    });
+    connect(socket, &QTcpSocket::readyRead, this, [this, socket, timeout, address, sent, length, receiver] {
+        if (!*sent) {
+            if (socket->bytesAvailable() < HelloBytes) return;
+            const auto hello = socket->read(HelloBytes);
+            const auto id = hello.mid(36, 36);
+            if (hello.left(4) != "LC2!" || QUuid(QString::fromUtf8(id)).isNull() || id == m_profile.deviceId.toUtf8()
+                || !SecureProtocol::verify(hello.mid(72, 32), SecureProtocol::mac(m_profile, serverProof(hello.mid(4, 32), id), "handshake"))) {
+                socket->abort(); return;
+            }
+            *receiver = QString::fromUtf8(id); *sent = true;
+            const auto announcement = SecureProtocol::announcement(m_profile, port());
+            QByteArray header("LCD?"); header.resize(8);
+            qToBigEndian(quint32(announcement.size()), reinterpret_cast<uchar *>(header.data() + 4));
+            socket->setReadBufferSize(32772); socket->write(header + announcement);
+        }
+        if (!*length) {
+            if (socket->bytesAvailable() < 4) return;
+            const auto header = socket->read(4);
+            *length = qFromBigEndian<quint32>(reinterpret_cast<const uchar *>(header.constData()));
+            if (!*length || *length > 32768) { socket->abort(); return; }
+        }
+        if (socket->bytesAvailable() < *length) return;
+        const auto bytes = socket->read(*length);
+        QJsonObject announcement;
+        if (SecureProtocol::readAnnouncement(m_profile, bytes, &announcement) && announcement.value("id").toString() == *receiver)
+            processAnnouncement(bytes, address, 45871, socket);
+        timeout->stop(); socket->disconnectFromHost();
+    });
+    socket->connectToHost(address, transferPort);
 }
 void SyncEngine::discover() {
     int processed = 0;
@@ -111,50 +178,55 @@ void SyncEngine::discover() {
         QHostAddress address;
         quint16 sourcePort = 0;
         if (m_udp.readDatagram(bytes.data(), bytes.size(), &address, &sourcePort) < 0) continue;
-        QJsonObject obj;
-        if (!SecureProtocol::readAnnouncement(m_profile, bytes, &obj)) continue;
-        const QString id = obj.value("id").toString();
-        if (id == m_profile.deviceId || (m_peers.size() >= 64 && !m_peers.contains(id))) continue;
-        const auto publicKey = QByteArray::fromHex(obj.value("publicKey").toString().toLatin1());
-        if (m_profile.managed()) {
-            Profile next = m_profile;
-            if (DeviceAccess::updateRegistry(&next, obj.value("registry").toObject())) {
-                QString error;
-                // Merge into the latest local preferences (Android's UI uses a separate process).
-                Profile saved = Profile::load();
-                if (saved.key == next.key && saved.authorityPublic == next.authorityPublic) {
-                    saved.registry = next.registry;
-                    if (!saved.save(&error)) { emit message(error); continue; }
-                }
-                m_profile.registry = next.registry; emit registryChanged();
-                for (auto *active : findChildren<QTcpSocket *>(QString(), Qt::FindDirectChildrenOnly)) active->abort();
-            }
-        }
-        auto metadata = m_knownDevices.value(id);
-        const qint64 now = QDateTime::currentSecsSinceEpoch();
-        const bool metadataChanged = metadata.value("name").toString() != obj.value("name").toString()
-            || now - qint64(metadata.value("seen").toDouble()) >= 10;
-        metadata.insert("id", id); metadata.insert("name", obj.value("name"));
-        metadata.insert("key", QString::fromLatin1(publicKey.toHex())); metadata.insert("seen", double(now));
-        if (m_knownDevices.size() < 64 || m_knownDevices.contains(id)) m_knownDevices.insert(id, metadata);
-        if (metadataChanged) saveDevices();
-        const bool isNew = !m_peers.contains(id) || m_peers.value(id).address != address;
-        m_peers.insert(id, Peer{id, obj.value("name").toString(), address, quint16(obj.value("port").toInt()), m_clock.elapsed(), obj.value("receipts").toBool(), publicKey});
-        // Reply once to a newly authenticated peer; never create a reply loop.
-        if (isNew) contact(address, sourcePort);
-        // A receipt queued while the phone was suspended is delivered on reconnection.
-        if (DeviceAccess::approved(m_profile, id, publicKey)) {
-            const auto receipts = m_receipts;
-            for (auto it = receipts.cbegin(); it != receipts.cend(); ++it) {
-                if (now - qint64(it.value().value("time").toDouble()) > 600) { m_receipts.remove(it.key()); m_receiptAttempts.remove(it.key()); continue; }
-                if (it.value().value("to").toString() == id && now - m_receiptAttempts.value(it.key()) >= 3
-                    && sendControl(m_peers.value(id), it.value())) m_receiptAttempts.insert(it.key(), now);
-            }
-        }
-        emit peersChanged();
+        processAnnouncement(bytes, address, sourcePort);
     }
     if (m_udp.hasPendingDatagrams()) QTimer::singleShot(0, this, &SyncEngine::discover);
 }
+bool SyncEngine::processAnnouncement(const QByteArray &bytes, const QHostAddress &address, quint16 sourcePort, QTcpSocket *discoverySocket) {
+    QJsonObject obj;
+    if (!SecureProtocol::readAnnouncement(m_profile, bytes, &obj)) return false;
+    const QString id = obj.value("id").toString();
+    if (id == m_profile.deviceId || (m_peers.size() >= 64 && !m_peers.contains(id))) return false;
+    const auto publicKey = QByteArray::fromHex(obj.value("publicKey").toString().toLatin1());
+    if (m_profile.managed()) {
+        Profile next = m_profile;
+        if (DeviceAccess::updateRegistry(&next, obj.value("registry").toObject())) {
+            QString error;
+            // Merge into the latest local preferences (Android's UI uses a separate process).
+            Profile saved = Profile::load();
+            if (saved.key == next.key && saved.authorityPublic == next.authorityPublic) {
+                saved.registry = next.registry;
+                if (!saved.save(&error)) { emit message(error); return false; }
+            }
+            m_profile.registry = next.registry; emit registryChanged();
+            for (auto *active : findChildren<QTcpSocket *>(QString(), Qt::FindDirectChildrenOnly)) if (active != discoverySocket) active->abort();
+        }
+    }
+    auto metadata = m_knownDevices.value(id);
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    const bool metadataChanged = metadata.value("name").toString() != obj.value("name").toString()
+        || now - qint64(metadata.value("seen").toDouble()) >= 10;
+    metadata.insert("id", id); metadata.insert("name", obj.value("name"));
+    metadata.insert("key", QString::fromLatin1(publicKey.toHex())); metadata.insert("seen", double(now));
+    if (m_knownDevices.size() < 64 || m_knownDevices.contains(id)) m_knownDevices.insert(id, metadata);
+    if (metadataChanged) saveDevices();
+    const bool isNew = !m_peers.contains(id) || m_peers.value(id).address != address;
+    m_peers.insert(id, Peer{id, obj.value("name").toString(), address, quint16(obj.value("port").toInt()), m_clock.elapsed(), obj.value("receipts").toBool(), publicKey, sourcePort});
+    // Reply once to a newly authenticated peer; never create a reply loop.
+    if (isNew && !discoverySocket) contact(address, sourcePort);
+    // A receipt queued while the phone was suspended is delivered on reconnection.
+    if (DeviceAccess::approved(m_profile, id, publicKey)) {
+        const auto receipts = m_receipts;
+        for (auto it = receipts.cbegin(); it != receipts.cend(); ++it) {
+            if (now - qint64(it.value().value("time").toDouble()) > 600) { m_receipts.remove(it.key()); m_receiptAttempts.remove(it.key()); continue; }
+            if (it.value().value("to").toString() == id && now - m_receiptAttempts.value(it.key()) >= 3
+                && sendControl(m_peers.value(id), it.value())) m_receiptAttempts.insert(it.key(), now);
+        }
+    }
+    emit peersChanged();
+    return true;
+}
+
 QStringList SyncEngine::peerDescriptions() const {
     QStringList peers;
     for (const auto &p : m_peers) { if (!DeviceAccess::approved(m_profile, p.id, p.publicKey)) continue; peers.append(QStringLiteral("%1 — %2").arg(p.name, p.address.toString())); }
@@ -299,7 +371,7 @@ void SyncEngine::accept() {
     while (m_server.hasPendingConnections()) {
         QTcpSocket *socket = m_server.nextPendingConnection();
         socket->setParent(this);
-        if (m_connections >= 8 || m_profile.isPaused()) { socket->abort(); socket->deleteLater(); continue; }
+        if (m_connections >= 8) { socket->abort(); socket->deleteLater(); continue; }
         ++m_connections;
         connect(socket, &QObject::destroyed, this, [this] {
             --m_connections;
@@ -315,9 +387,30 @@ void SyncEngine::accept() {
         connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
         connect(socket, &QTcpSocket::errorOccurred, socket, [socket](QAbstractSocket::SocketError) { socket->deleteLater(); });
         connect(socket, &QTcpSocket::readyRead, this, [this, socket, timeout, transfer, challenge, receiver] {
-            if (m_profile.isPaused()) { socket->abort(); return; }
             if (transfer->phase == IncomingTransfer::Done) return;
             if (transfer->phase == IncomingTransfer::Proof) {
+                if (socket->bytesAvailable() >= 8 && socket->peek(4) == "LCD?") {
+                    const auto header = socket->read(8);
+                    const auto length = qFromBigEndian<quint32>(reinterpret_cast<const uchar *>(header.constData() + 4));
+                    if (!length || length > 32768 || length > TransferMemoryBudget - m_bufferedBytes) { socket->abort(); return; }
+                    transfer->length = length; m_bufferedBytes += length;
+                    transfer->phase = IncomingTransfer::Discovery;
+                    socket->setReadBufferSize(length);
+                }
+            }
+            if (transfer->phase == IncomingTransfer::Discovery) {
+                if (socket->bytesAvailable() < transfer->length) return;
+                transfer->phase = IncomingTransfer::Done;
+                if (processAnnouncement(socket->read(transfer->length), socket->peerAddress(), 45871, socket)) {
+                    const auto response = SecureProtocol::announcement(m_profile, port());
+                    QByteArray header(4, Qt::Uninitialized);
+                    qToBigEndian(quint32(response.size()), reinterpret_cast<uchar *>(header.data()));
+                    socket->write(header + response);
+                }
+                timeout->stop(); socket->disconnectFromHost(); return;
+            }
+            if (transfer->phase == IncomingTransfer::Proof) {
+                if (m_profile.isPaused()) { socket->abort(); return; }
                 if (socket->bytesAvailable() < ProofBytes) return;
                 const QByteArray proof = socket->read(ProofBytes), sender = proof.left(36);
                 const QUuid id(QString::fromUtf8(sender));

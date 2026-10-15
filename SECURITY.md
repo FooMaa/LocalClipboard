@@ -1,7 +1,7 @@
 # Security and release verification
 
 This is a source review and reproducible regression setup, not an independent
-penetration test or a certification. Review date: 2026-10-15, application 2.3.0.
+penetration test or a certification. Review date: 2026-10-15, application 2.3.1.
 
 ## Trust boundaries
 
@@ -175,7 +175,7 @@ allowlist and exclude names, addresses, content and keys.
 
 ## Русская версия
 
-Проверка исходников и регрессионные тесты от 15.10.2026 для версии 2.3.0 не заменяют
+Проверка исходников и регрессионные тесты от 15.10.2026 для версии 2.3.1 не заменяют
 независимый пентест и не являются сертификацией безопасности.
 
 Новые профили `LC3` используют личные ключи X25519 и подписанный владельцем реестр

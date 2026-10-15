@@ -372,6 +372,66 @@ private slots:
         QSignalSpy changes(&computer, &SyncEngine::peersChanged);
         QTest::qWait(100); QCOMPARE(changes.size(), 0);
     }
+    void qrDiscoveryOverTcpWithoutUdp_data() {
+        QTest::addColumn<bool>("managed");
+        QTest::newRow("legacy") << false;
+        QTest::newRow("managed-approval-and-revocation") << true;
+    }
+    void qrDiscoveryOverTcpWithoutUdp() {
+        QFETCH(bool, managed);
+        Profile desktop = profile(); if (managed) desktop.createManaged();
+        const auto qr = ConnectionInfo{desktop.invitation(), {"127.0.0.1"}}.encoded();
+        ConnectionInfo scanned; QVERIFY(ConnectionInfo::parse(qr, &scanned));
+        Profile phone = profile(); QVERIFY(phone.join(scanned.code));
+        // Ephemeral UDP endpoints receive no announcements: this exchange uses TCP only.
+        SyncEngine mac(desktop, nullptr, 0, 0), android(phone, nullptr, 0, 0);
+        android.contactTcp(QHostAddress(scanned.addresses.first()), mac.port());
+        QTRY_COMPARE(mac.devices().size(), 1); QTRY_COMPARE(android.devices().size(), 1);
+        if (managed) {
+            QVERIFY(mac.peerDescriptions().isEmpty());
+            QVERIFY(!android.send(text("not yet approved")));
+            QVERIFY(mac.authorizeDevice(phone.deviceId, false));
+            // A fresh direct exchange carries the signed approval even if UDP is filtered.
+            QTest::qWait(20);
+            android.contactTcp(QHostAddress::LocalHost, mac.port());
+            QTRY_VERIFY(DeviceAccess::approved(android.profile(), phone.deviceId));
+        }
+        QTRY_COMPARE(mac.peerDescriptions().size(), 1); QTRY_COMPARE(android.peerDescriptions().size(), 1);
+        QSignalSpy onPhone(&android, &SyncEngine::received), onMac(&mac, &SyncEngine::received);
+        QVERIFY(mac.send(text("Mac to Android after QR"))); QTRY_COMPARE(onPhone.size(), 1);
+        QVERIFY(android.send(text("Android to Mac after QR"))); QTRY_COMPARE(onMac.size(), 1);
+        QCOMPARE(onPhone.first().first().toJsonObject().value("text").toString(), QStringLiteral("Mac to Android after QR"));
+        QCOMPARE(onMac.first().first().toJsonObject().value("text").toString(), QStringLiteral("Android to Mac after QR"));
+        if (managed) {
+            QVERIFY(mac.authorizeDevice(phone.deviceId, true));
+            QTest::qWait(20); android.contactTcp(QHostAddress::LocalHost, mac.port());
+            QTRY_VERIFY(!DeviceAccess::approved(android.profile(), phone.deviceId));
+            QVERIFY(!android.send(text("revoked"))); QVERIFY(!mac.send(text("revoked")));
+        }
+    }
+    void tcpDiscoveryRejectsWrongGroupsAndOversizedFrames() {
+        Profile owner = profile(); owner.createManaged();
+        SyncEngine receiver(owner, nullptr, 0, 0);
+        auto request = [&](const QByteArray &payload, quint32 length) {
+            QTcpSocket socket; socket.connectToHost(QHostAddress::LocalHost, receiver.port());
+            QTRY_VERIFY(socket.bytesAvailable() >= 104); socket.read(104);
+            QByteArray header("LCD?"); header.resize(8);
+            qToBigEndian(length, reinterpret_cast<uchar *>(header.data() + 4));
+            socket.write(header + payload);
+            QTRY_COMPARE(socket.state(), QAbstractSocket::UnconnectedState);
+            QVERIFY(receiver.devices().isEmpty());
+        };
+        const auto other = SecureProtocol::announcement(profile(), 45872);
+        request(other, quint32(other.size())); request({}, 32769); request({}, 0);
+    }
+    void tcpDiscoveryDoesNotResumePausedSynchronization() {
+        Profile owner = profile(); owner.createManaged(); owner.paused = true;
+        Profile phone = profile(); QVERIFY(phone.join(owner.invitation()));
+        SyncEngine mac(owner, nullptr, 0, 0), android(phone, nullptr, 0, 0);
+        android.contactTcp(QHostAddress::LocalHost, mac.port());
+        QTRY_COMPARE(mac.devices().size(), 1); QTRY_COMPARE(android.devices().size(), 1);
+        QVERIFY(mac.profile().isPaused()); QVERIFY(!mac.send(text("paused")));
+    }
     void importedQueueIsPrivateAndBounded() {
         QTemporaryDir directory;
         const Profile person = profile(), other = profile();

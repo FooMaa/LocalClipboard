@@ -295,3 +295,7 @@
 
     {"Open the app to copy history.", "Откройте приложение, чтобы скопировать элемент истории."},
     {"Copied history item.", "Элемент истории скопирован."},
+    {"Devices waiting for approval: %1", "Устройств ожидает одобрения: %1"},
+    {"On Mac, allow LocalClipboard under System Settings → Privacy & Security → Local Network. After scanning, approve the new device under Devices and access.", "На Mac разрешите LocalClipboard доступ в «Системные настройки → Конфиденциальность и безопасность → Локальная сеть». После сканирования одобрите новое устройство в разделе «Устройства и доступ»."},
+    {"Local network access is blocked. Allow LocalClipboard in system privacy settings and check the firewall.", "Доступ к локальной сети заблокирован. Разрешите LocalClipboard в настройках конфиденциальности и проверьте брандмауэр."},
+    {"Discovery send failed: ", "Не удалось отправить пакет обнаружения: "},

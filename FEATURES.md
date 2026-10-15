@@ -23,6 +23,13 @@ of larger files is a later protocol feature, not part of this release.
 
 ## Device access
 
+QR addresses also enable authenticated discovery over TCP 45872 if UDP discovery
+is filtered. Update both applications for this fallback. macOS must allow
+LocalClipboard in System Settings → Privacy & Security → Local Network. QR pairing
+cannot bypass a denied permission, firewall or guest-network client isolation.
+If TCP 45872 is occupied and the receiver uses an alternate port, initial discovery
+still requires UDP. A new LC3 device remains pending until the owner approves it.
+
 New profiles use `LC3` invitations. Each device has a private X25519 key. The first
 device additionally owns an EdDSA authority seed and signs the registry of up to
 64 identities. The connection code contains the discovery secret and authority
@@ -117,6 +124,13 @@ uses the existing Xcode team workflow.
 Потоковая передача больших файлов с возобновлением остаётся следующим этапом.
 
 ## Доступ устройств
+
+Адреса из QR также используются для аутентифицированного обнаружения через TCP
+45872, если UDP фильтруется. Для этого обновите оба приложения. На macOS разрешите
+LocalClipboard доступ в «Системные настройки → Конфиденциальность и безопасность →
+Локальная сеть». QR не обходит отказ в разрешении, брандмауэр и изоляцию клиентов
+гостевой сети. Если TCP 45872 занят и получатель использует другой порт, первоначальное
+обнаружение по-прежнему требует UDP. Новое устройство LC3 ожидает одобрения владельца.
 
 Новые профили используют приглашения `LC3`. У каждого устройства — личный ключ X25519.
 Первое устройство также хранит секрет центра подписи EdDSA и подписывает реестр до
