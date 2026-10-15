@@ -3,6 +3,8 @@
 #include "I18n.h"
 #include <QApplication>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QQmlApplicationEngine>
 #include <QQmlError>
 #include <QQuickItem>
@@ -75,13 +77,38 @@ private slots:
         window->resize(360, 440); window->setProperty("page", "settings"); window->show(); QTest::qWait(50);
         auto *scroll = window->findChild<QQuickItem *>("settingsScroll"); QVERIFY(scroll);
         QVERIFY(scroll->property("contentHeight").toReal() > scroll->height());
-        int ticks = 0; QTimer timer; connect(&timer, &QTimer::timeout, this, [&] { ++ticks; }); timer.start(10);
+        // Observe independent event delivery while inertia advances. Counting timer
+        // callbacks in a fixed 100 ms window is scheduler-dependent on CI runners.
+        QEventLoop observation;
+        int movingTicks = 0;
+        qreal lastY = scroll->property("contentY").toReal();
+        QTimer timer;
+        timer.setTimerType(Qt::PreciseTimer);
+        connect(&timer, &QTimer::timeout, &observation, [&] {
+            const auto currentY = scroll->property("contentY").toReal();
+            if (scroll->property("flicking").toBool() && currentY > lastY + 1) {
+                lastY = currentY;
+                if (++movingTicks >= 3) observation.quit();
+            }
+        });
+        QTimer watchdog;
+        watchdog.setSingleShot(true);
+        watchdog.setTimerType(Qt::PreciseTimer);
+        connect(&watchdog, &QTimer::timeout, &observation, &QEventLoop::quit);
+        QElapsedTimer elapsed;
+        elapsed.start();
+        timer.start(16);
+        watchdog.start(2000);
         QVERIFY(QMetaObject::invokeMethod(scroll, "flick", Q_ARG(qreal, 0.0), Q_ARG(qreal, -1800.0)));
-        QTRY_VERIFY(scroll->property("contentY").toReal() > 30);
-        const auto first = scroll->property("contentY").toReal();
-        QTest::qWait(100);
-        QVERIFY(scroll->property("contentY").toReal() > first);
-        QVERIFY(ticks >= 5);
+        observation.exec();
+        timer.stop();
+        watchdog.stop();
+        const auto diagnostic = QString("Observed %1 moving timer callbacks in %2 ms; contentY=%3, flicking=%4")
+            .arg(movingTicks).arg(elapsed.elapsed()).arg(scroll->property("contentY").toReal())
+            .arg(scroll->property("flicking").toBool());
+        QVERIFY2(movingTicks >= 3, qPrintable(diagnostic));
+        QVERIFY2(elapsed.elapsed() < 2000, qPrintable(diagnostic));
+        QVERIFY(scroll->property("contentY").toReal() > 30);
         const auto y = scroll->property("contentY").toReal();
         controller.setLanguage(controller.language() == "ru" ? "en" : "ru");
         QTest::qWait(30);
