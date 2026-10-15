@@ -22,7 +22,8 @@ QString waitForResult(QWidget *owner, jint request) {
         result = QJniObject::callStaticObjectMethod(Bridge, "result", "(I)Ljava/lang/String;", request).toString();
         if (!result.isEmpty()) loop.quit();
     });
-    QObject::connect(owner, &QObject::destroyed, &loop, &QEventLoop::quit);
+    if (owner) QObject::connect(owner, &QObject::destroyed, &loop, &QEventLoop::quit);
+    QObject::connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, &loop, &QEventLoop::quit);
     poll.start(40);
     loop.exec();
     QJniObject::callStaticMethod<void>(Bridge, "cancel", "(I)V", request);

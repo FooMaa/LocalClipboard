@@ -1,45 +1,33 @@
 #include "ClipboardSync.h"
+#include "ClipboardSession.h"
+#include <QSignalBlocker>
 #include "Autostart.h"
-#include "ClipboardPayload.h"
 #include "Registration.h"
 #include "I18n.h"
 #include "Ui.h"
-#include "Async.h"
 #include "Uninstall.h"
-#include <QComboBox>
-#include <QHBoxLayout>
-#include "SyncEngine.h"
 #include <QApplication>
 #include <QCheckBox>
-#include <QClipboard>
+#include <QComboBox>
 #include <QCloseEvent>
 #include <QDesktopServices>
 #include <QDir>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QFormLayout>
 #include <QLineEdit>
 #include <QNetworkInterface>
 #include <QPointer>
 #include <QScrollArea>
-#include <QRegularExpression>
 #include <QFileDialog>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
-#include <QMimeData>
 #include <QPushButton>
-#include <QImage>
-#include <QPixmap>
-#include <QStatusBar>
-#include <QStyle>
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
 #include <QSystemTrayIcon>
 #endif
-#include <QTimer>
 #include <QVBoxLayout>
-#include <memory>
 #ifdef Q_OS_ANDROID
 #include "AndroidBridge.h"
 #endif
@@ -47,9 +35,9 @@
 #include "IOSBridge.h"
 #endif
 
-ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWindow(parent), m_profile(profile) {
+ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWindow(parent), m_session(new ClipboardSession(profile, this)) {
     Ui::prepareWindow(this);
-    setWindowTitle("LocalClipboard — " + m_profile.ownerName);
+    setWindowTitle("LocalClipboard — " + m_session->profile().ownerName);
     if (!Ui::touchMode()) resize(580, 760);
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
@@ -58,8 +46,8 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
     layout->addWidget(Ui::label("LocalClipboard", central, "heading"));
     auto *intro = Ui::label("", central);
     const auto updateProfile = [this, intro] {
-        intro->setText(I18n::text("Your profile: %1 · Device: %2").arg(m_profile.ownerName, m_profile.deviceName));
-        setWindowTitle("LocalClipboard — " + m_profile.ownerName);
+        intro->setText(I18n::text("Your profile: %1 · Device: %2").arg(m_session->profile().ownerName, m_session->profile().deviceName));
+        setWindowTitle("LocalClipboard — " + m_session->profile().ownerName);
     };
     updateProfile(); connect(&I18n::instance(), &I18n::languageChanged, this, updateProfile);
     layout->addWidget(intro);
@@ -108,7 +96,7 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
     auto *scroll = new QScrollArea(this); scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); scroll->setWidget(central); setCentralWidget(scroll); Ui::enableTouchScroll(scroll);
     connect(&I18n::instance(), &I18n::languageChanged, this, &ClipboardSync::refresh);
-    connect(send, &QPushButton::clicked, this, [this] { sendClipboard(true); });
+    connect(send, &QPushButton::clicked, this, [this] { m_session->sendClipboard(true); });
     connect(quit, &QPushButton::clicked, this, [] {
 #ifdef Q_OS_ANDROID
         AndroidBridge::stopService();
@@ -120,45 +108,21 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
         const QPointer<ClipboardSync> self(this);
         IOSBridge::pickFiles(this, [self](const QList<QUrl> &urls, const QString &error) {
             if (!self) return;
-            if (!error.isEmpty()) { self->log(error); return; }
-            if (urls.isEmpty()) return;
-            QString message;
-            if (!IOSBridge::queueFiles(self->m_profile, urls, &message)) self->log(message);
-            else self->log("Files saved for sending when a registered device is online.");
+            if (!error.isEmpty()) self->m_session->report(error);
+            else self->m_session->importFiles(urls);
         });
 #else
-        const QList<QUrl> urls = QFileDialog::getOpenFileUrls(this, I18n::text("Select files or photos"));
-        if (urls.isEmpty()) return;
-#ifdef Q_OS_ANDROID
-        if (m_preparingSend) return;
-        m_preparingSend = true;
-        log("Preparing files…");
-        const QString group = m_profile.groupId();
-        Async::run(this, [urls] {
-            QString error;
-            const auto payload = ClipboardPayload::fromFiles(urls, &error);
-            return QPair<QJsonObject, QString>(payload, error);
-        }, [this, group](const QPair<QJsonObject, QString> &result) {
-            m_preparingSend = false;
-            if (group != m_profile.groupId()) return;
-            if (!result.first.isEmpty()) sendPayload(result.first); else log(result.second);
-        });
-#else
-        QString error;
-        const QJsonObject payload = ClipboardPayload::fromFiles(urls, &error);
-        if (!payload.isEmpty()) sendPayload(payload); else log(error);
-#endif
+        m_session->sendFiles(QFileDialog::getOpenFileUrls(this, I18n::text("Select files or photos")));
 #endif
     });
-    connect(pair, &QPushButton::clicked, this, [this] { showInvitation(m_profile, this); });
+    connect(pair, &QPushButton::clicked, this, [this] { showInvitation(m_session->profile(), this); });
     connect(change, &QPushButton::clicked, this, [this, startup, updateProfile] {
-        Profile next = m_profile;
+        Profile next = m_session->profile();
         if (!registerDevice(&next, this)) return;
-        m_profile = next; m_lastHash.clear(); m_pause->setChecked(false); startup->setChecked(next.autostart);
+        m_session->replaceProfile(next);
         updateProfile();
         QString error;
-        if (!Autostart::setEnabled(next.autostart, &error)) log(error);
-        startEngine();
+        if (!Autostart::setEnabled(next.autostart, &error)) m_session->report(error);
     });
     connect(received, &QPushButton::clicked, this, [this] {
         const QString folder = QDir(Profile::dataDirectory()).filePath("received");
@@ -171,26 +135,24 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
         QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
 #endif
     });
-    connect(m_pause, &QCheckBox::toggled, this, [this](bool paused) {
-        m_profile.paused = paused; QString error;
-        if (!m_profile.save(&error)) log(error);
-        if (m_engine) m_engine->setPaused(paused);
-        refresh();
-    });
+    connect(m_pause, &QCheckBox::toggled, m_session, &ClipboardSession::setPaused);
     connect(startup, &QCheckBox::toggled, this, [this, startup](bool enabled) {
-        QString error;
-        if (!Autostart::setEnabled(enabled, &error)) {
-            startup->blockSignals(true); startup->setChecked(m_profile.autostart); startup->blockSignals(false);
-            log("Autostart failed: " + error); return;
-        }
-        m_profile.autostart = enabled;
-        if (!m_profile.save(&error)) log(error);
+        m_session->setAutostart(enabled);
+        const QSignalBlocker blocker(startup);
+        startup->setChecked(m_session->profile().autostart);
+    });
+    connect(m_session, &ClipboardSession::profileChanged, this, [this, startup, updateProfile] {
+        const QSignalBlocker pausedBlock(m_pause), startupBlock(startup);
+        m_pause->setChecked(m_session->profile().paused);
+        startup->setChecked(m_session->profile().autostart);
+        updateProfile(); refresh();
+    });
+    connect(m_session, &ClipboardSession::stateChanged, this, &ClipboardSync::refresh);
+    connect(m_session, &ClipboardSession::messageChanged, this, [this] { m_log->setText(I18n::text(m_session->message())); });
+    connect(m_session, &ClipboardSession::busyChanged, this, [this, send, files] {
+        send->setEnabled(!m_session->busy()); files->setEnabled(!m_session->busy());
     });
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
-    connect(QApplication::clipboard(), &QClipboard::dataChanged, this, [this] { sendClipboard(); });
-    QString ignored;
-    const auto initial = ClipboardPayload::capture(QApplication::clipboard()->mimeData(), &ignored);
-    if (!initial.isEmpty()) m_lastHash = ClipboardPayload::hash(initial);
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         QIcon trayIcon = QApplication::windowIcon();
 #ifdef Q_OS_MACOS
@@ -216,195 +178,11 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
         });
         m_tray->show();
     }
-#elif defined(Q_OS_ANDROID)
-    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
-        if (state == Qt::ApplicationActive) {
-            auto pending = std::move(m_pendingApply); m_pendingApply = {};
-            if (pending) pending();
-            pollAndroidInbox();
-        }
-    });
-    auto *poll = new QTimer(this);
-    connect(poll, &QTimer::timeout, this, [this] {
-        if (QApplication::applicationState() != Qt::ApplicationActive) return;
-        refresh();
-        if (!m_pause->isChecked()) {
-            pollAndroidInbox();
-            const QString group = m_profile.groupId();
-            AndroidBridge::consumeShares(this, [this, group](const QJsonObject &p) {
-                if (m_profile.groupId() == group) sendPayload(p);
-            }, [this](const QString &e) { log(e); });
-        }
-    });
-    poll->start(1000);
-#else
-    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
-        // iOS suspends ordinary apps. Tear down sockets so desktops stop listing us.
-        if (state == Qt::ApplicationActive) startEngine();
-        else { delete m_engine; m_engine = nullptr; refresh(); }
-    });
-    auto *poll = new QTimer(this);
-    connect(poll, &QTimer::timeout, this, [this] {
-        if (!m_engine || m_profile.paused || m_engine->peerDescriptions().isEmpty()) return;
-        QString error;
-        const auto urls = IOSBridge::queuedFiles(m_profile);
-        if (urls.isEmpty()) return;
-        const auto payload = ClipboardPayload::fromFiles(urls, &error);
-        if (payload.isEmpty()) { log(error); return; }
-        if (m_engine->send(payload)) {
-            IOSBridge::clearQueue(m_profile);
-            log("Sending imported files. Copies remain under Imported files for retry.");
-        }
-    });
-    poll->start(1000);
-#endif
-    startEngine();
-}
-void ClipboardSync::startEngine() {
-    delete m_engine; m_engine = nullptr;
-#ifdef Q_OS_IOS
-    if (QApplication::applicationState() != Qt::ApplicationActive) { refresh(); return; }
-#endif
-#ifdef Q_OS_ANDROID
-    AndroidBridge::startService(m_profile.autostart);
-#else
-    m_engine = new SyncEngine(m_profile, this);
-    connect(m_engine, &SyncEngine::received, this, &ClipboardSync::apply);
-    connect(m_engine, &SyncEngine::message, this, &ClipboardSync::log);
-    connect(m_engine, &SyncEngine::peersChanged, this, &ClipboardSync::refresh);
 #endif
     refresh();
 }
-void ClipboardSync::sendClipboard(bool explicitSend) {
-    if (m_applying || m_pause->isChecked()) return;
-#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-    if (QApplication::applicationState() != Qt::ApplicationActive) return;
-#endif
-#ifdef Q_OS_ANDROID
-    if (m_preparingSend) return;
-    const QMimeData *source = QApplication::clipboard()->mimeData();
-    if (!source) return;
-    // Access the system clipboard on Qt's GUI thread; encode images/read files on a worker.
-    const auto urls = source->urls();
-    const QString text = source->text(), html = source->html();
-    QImage image;
-    if (urls.isEmpty() && source->hasImage()) {
-        image = qvariant_cast<QImage>(source->imageData());
-        if (image.isNull()) image = qvariant_cast<QPixmap>(source->imageData()).toImage();
-    }
-    m_preparingSend = true;
-    const QString group = m_profile.groupId();
-    Async::run(this, [urls, text, html, image] {
-        QMimeData snapshot;
-        if (!urls.isEmpty()) snapshot.setUrls(urls);
-        if (!text.isEmpty()) snapshot.setText(text);
-        if (!html.isEmpty()) snapshot.setHtml(html);
-        if (!image.isNull()) snapshot.setImageData(image);
-        QString error;
-        const auto payload = ClipboardPayload::capture(&snapshot, &error);
-        return QPair<QJsonObject, QString>(payload, error);
-    }, [this, group](const QPair<QJsonObject, QString> &result) {
-        m_preparingSend = false;
-        if (m_profile.groupId() != group) return;
-        if (!result.first.isEmpty()) sendPayload(result.first);
-        else if (!result.second.isEmpty()) log(result.second);
-    });
-#else
-    QString error;
-    const QJsonObject payload = ClipboardPayload::capture(QApplication::clipboard()->mimeData(), &error);
-    if (payload.isEmpty()) { m_lastHash.clear(); if (!error.isEmpty()) log(error); return; }
-    const QString hash = ClipboardPayload::hash(payload);
-    if (!explicitSend && hash == m_lastHash) return;
-    m_lastHash = hash;
-    sendPayload(payload);
-#endif
-}
-void ClipboardSync::sendPayload(const QJsonObject &payload) {
-    if (m_pause->isChecked()) return;
-#ifdef Q_OS_ANDROID
-    const QString description = ClipboardPayload::description(payload);
-    AndroidBridge::queueOutgoing(m_profile, payload, this, [this, description](const QString &error) {
-        log(error.isEmpty() ? "Queued " + description : error);
-    });
-#else
-    if (!m_engine || !m_engine->send(payload)) log("No registered device is online, or synchronization is paused.");
-#endif
-}
-void ClipboardSync::apply(const QJsonObject &payload) {
-    if (m_pause->isChecked()) return;
-#ifdef Q_OS_ANDROID
-    struct Prepared { QString hash, description, error, text, html; QList<QUrl> urls; bool valid = false; };
-    const QString directory = QDir(Profile::dataDirectory()).filePath("received");
-    const QString group = m_profile.groupId();
-    const QString description = ClipboardPayload::description(payload);
-    m_applying = true;
-    Async::run(this, [payload, directory, description] {
-        Prepared result;
-        result.hash = ClipboardPayload::hash(payload);
-        result.description = description;
-        std::unique_ptr<QMimeData> mime(ClipboardPayload::materialize(payload, directory, &result.error));
-        if (mime) {
-            result.valid = true; result.urls = mime->urls(); result.text = mime->text(); result.html = mime->html();
-        }
-        return result;
-    }, [this, group](const Prepared &result) {
-        auto finish = [this, group, result] {
-            m_applying = false;
-            if (m_profile.groupId() != group || m_pause->isChecked()) return;
-            if (!result.valid) { AndroidBridge::acknowledgeInbox(); log(result.error); return; }
-            m_lastHash = result.hash;
-            if (!result.urls.isEmpty()) AndroidBridge::copyFiles(result.urls);
-            else {
-                auto *mime = new QMimeData;
-                mime->setText(result.text); if (!result.html.isEmpty()) mime->setHtml(result.html);
-                QApplication::clipboard()->setMimeData(mime);
-            }
-            AndroidBridge::acknowledgeInbox();
-            log("Applied " + result.description);
-        };
-        if (QApplication::applicationState() == Qt::ApplicationActive) finish();
-        else m_pendingApply = std::move(finish);
-    });
-#else
-    const QString hash = ClipboardPayload::hash(payload);
-#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
-    if (hash == m_lastHash) return;
-#endif
-    QString error;
-    QMimeData *mime = ClipboardPayload::materialize(payload, QDir(Profile::dataDirectory()).filePath("received"), &error);
-    if (!mime) { log(error); return; }
-    m_applying = true;
-    m_lastHash = hash;
-#ifdef Q_OS_IOS
-    if (mime->hasUrls()) { IOSBridge::copyFiles(mime->urls()); delete mime; }
-    else QApplication::clipboard()->setMimeData(mime);
-#else
-    QApplication::clipboard()->setMimeData(mime);
-    const auto normalized = ClipboardPayload::capture(QApplication::clipboard()->mimeData(), &error);
-    if (!normalized.isEmpty()) m_lastHash = ClipboardPayload::hash(normalized);
-#endif
-    m_applying = false;
-    log("Applied " + ClipboardPayload::description(payload));
-#endif
-}
-void ClipboardSync::pollAndroidInbox() {
-#ifdef Q_OS_ANDROID
-    if (m_loadingInbox || m_applying || m_pause->isChecked()) return;
-    m_loadingInbox = true;
-    const QString group = m_profile.groupId();
-    AndroidBridge::consumeInbox(m_profile, this, [this, group](const QJsonObject &payload) {
-        m_loadingInbox = false;
-        if (group == m_profile.groupId() && !payload.isEmpty()) apply(payload);
-    });
-#endif
-}
 void ClipboardSync::refresh() {
-    QStringList peers;
-#ifdef Q_OS_ANDROID
-    peers = AndroidBridge::peerDescriptions(m_profile);
-#else
-    if (m_engine) peers = m_engine->peerDescriptions();
-#endif
+    const QStringList peers = m_session->peers();
     if (peers != m_visiblePeers) {
         m_visiblePeers = peers; m_peers->clear(); m_peers->addItems(peers);
     }
@@ -412,10 +190,9 @@ void ClipboardSync::refresh() {
     m_status->setText(I18n::text("%1 registered device(s) online · %2").arg(m_peers->count())
         .arg(I18n::text(m_pause->isChecked() ? "paused" : "active")));
 #ifdef Q_OS_IOS
-    if (!m_engine) m_status->setText(I18n::text("Reception resumes when LocalClipboard is open."));
+    if (!m_session->receiving()) m_status->setText(I18n::text("Reception resumes when LocalClipboard is open."));
 #endif
 }
-void ClipboardSync::log(const QString &message) { m_log->setText(I18n::text(message)); }
 bool ClipboardSync::hasTray() const {
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     return false;
@@ -444,34 +221,18 @@ void ClipboardSync::networkSettings() {
     auto *help = Ui::label("", &dialog, "muted");
     const auto update = [help, local] { help->setText(I18n::text("This device: %1").arg(local.join(", "))); };
     update(); connect(&I18n::instance(), &I18n::languageChanged, &dialog, update); form.body->addWidget(help);
-    auto *addresses = new QLineEdit(m_profile.peerAddresses.join(" "), &dialog);
+    auto *addresses = new QLineEdit(m_session->profile().peerAddresses.join(" "), &dialog);
     addresses->setPlaceholderText("192.168.1.10"); Ui::field(form.body, "Device IP addresses", addresses); form.body->addStretch();
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog); form.footer->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
         QStringList peers;
-        for (const auto &value : addresses->text().split(QRegularExpression("[,;\\s]+"), Qt::SkipEmptyParts)) {
-            const QHostAddress address(value);
-            if (address.protocol() != QAbstractSocket::IPv4Protocol || address.isNull()
-                || address.isMulticast() || address == QHostAddress::Broadcast || peers.size() >= 32) {
-                QMessageBox::warning(&dialog, I18n::text("Network"), I18n::text("Enter up to 32 valid IPv4 addresses.")); return;
-            }
-            if (!peers.contains(address.toString())) peers.append(address.toString());
+        if (!Profile::parseAddresses(addresses->text(), &peers)) {
+            QMessageBox::warning(&dialog, I18n::text("Network"), I18n::text("Enter up to 32 valid IPv4 addresses.")); return;
         }
-        Profile next = m_profile; next.peerAddresses = peers;
-        QString error;
-        if (!next.save(&error)) { QMessageBox::warning(&dialog, I18n::text("Network"), I18n::text(error)); return; }
-        m_profile = next; startEngine(); dialog.accept();
+        Profile next = m_session->profile(); next.peerAddresses = peers;
+        if (m_session->saveProfile(next)) dialog.accept();
     });
     dialog.exec();
 }
-void ClipboardSync::importFiles(const QList<QUrl> &urls) {
-#ifdef Q_OS_IOS
-    // IOSApplication already copied the security-scoped URLs during FileOpen.
-    QString message;
-    if (!IOSBridge::queueFiles(m_profile, urls, &message)) log(message);
-    else { showSettings(); log("Imported files queued for your registered devices."); }
-#else
-    Q_UNUSED(urls);
-#endif
-}
+void ClipboardSync::importFiles(const QList<QUrl> &urls) { m_session->importFiles(urls); }

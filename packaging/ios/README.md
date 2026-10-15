@@ -1,17 +1,17 @@
 # LocalClipboard for your iPhone / iPad
 
-Requires iOS 16+, a Mac with full Xcode (iOS SDK installed), and the Qt 6 iOS kit.
+Requires iOS 17+, a Mac with full Xcode (iOS SDK installed), and the Qt 6 iOS kit.
 Xcode Command Line Tools and desktop Homebrew Qt alone are insufficient.
 
 ## Install through your own Xcode
 
-1. Install matching Qt iOS and macOS host kits (CI uses Qt 6.8.3).
+1. Install matching Qt iOS and macOS host kits (CI uses Qt 6.11.2).
 2. Connect the iPhone, enable Developer Mode, and trust the Mac if asked.
 3. Unzip `LocalClipboard-ios-installer.zip` and run:
 
    ```sh
-   export QT_IOS_ROOT="$HOME/Qt/6.8.3/ios"
-   export QT_HOST_PATH="$HOME/Qt/6.8.3/macos"
+   export QT_IOS_ROOT="$HOME/Qt/6.11.2/ios"
+   export QT_HOST_PATH="$HOME/Qt/6.11.2/macos"
    ./install.sh
    ```
 
@@ -115,17 +115,17 @@ personal profile. For an already registered phone, open **Change profile…** fi
 
 ### LocalClipboard для вашего iPhone / iPad
 
-Нужны iOS 16 или новее, Mac с полным Xcode и установленным iOS SDK, а также комплект Qt 6 для iOS. Одних Xcode Command Line Tools и Qt для компьютера из Homebrew недостаточно.
+Нужны iOS 17 или новее, Mac с полным Xcode и установленным iOS SDK, а также комплект Qt 6 для iOS. Одних Xcode Command Line Tools и Qt для компьютера из Homebrew недостаточно.
 
 ### Установка через свой Xcode
 
-1. Установите совпадающие версии комплектов Qt для iOS и macOS с инструментами сборки. В CI используется Qt 6.8.3.
+1. Установите совпадающие версии комплектов Qt для iOS и macOS с инструментами сборки. В CI используется Qt 6.11.2.
 2. Подключите iPhone, включите режим разработчика и при запросе подтвердите доверие к Mac.
 3. Распакуйте `LocalClipboard-ios-installer.zip` и выполните:
 
    ```sh
-   export QT_IOS_ROOT="$HOME/Qt/6.8.3/ios"
-   export QT_HOST_PATH="$HOME/Qt/6.8.3/macos"
+   export QT_IOS_ROOT="$HOME/Qt/6.11.2/ios"
+   export QT_HOST_PATH="$HOME/Qt/6.11.2/macos"
    ./install.sh
    ```
 

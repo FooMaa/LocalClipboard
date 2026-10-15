@@ -7,18 +7,26 @@
 #include <QTcpSocket>
 #include <QtEndian>
 #include <QUuid>
+#include <memory>
 
 namespace {
 constexpr int HelloBytes = 104;
 constexpr int ProofBytes = 68;
+constexpr qint64 TransferMemoryBudget = SecureProtocol::MaxWireBytes * 2LL;
+struct IncomingTransfer {
+    enum Phase { Proof, Length, Payload, Done } phase = Proof;
+    QByteArray sender;
+    quint32 length = 0;
+};
 QByteArray serverProof(const QByteArray &challenge, const QByteArray &receiver) { return QByteArray("server/") + challenge + receiver; }
 QByteArray clientProof(const QByteArray &challenge, const QByteArray &sender, const QByteArray &receiver) { return QByteArray("client/") + challenge + sender + receiver; }
 QByteArray context(const QByteArray &challenge, const QByteArray &sender, const QByteArray &receiver) { return QByteArray("LocalClipboard/v2/frame/") + challenge + sender + receiver; }
-void deadline(QTcpSocket *socket) {
+QTimer *deadline(QTcpSocket *socket) {
     auto *timer = new QTimer(socket);
     timer->setSingleShot(true);
     QObject::connect(timer, &QTimer::timeout, socket, [socket] { socket->abort(); socket->deleteLater(); });
-    timer->start(30000);
+    timer->start(5000); // Authentication must finish before reserving a file buffer.
+    return timer;
 }
 }
 SyncEngine::SyncEngine(const Profile &profile, QObject *parent, quint16 discoveryPort, quint16 transferPort)
@@ -43,9 +51,16 @@ SyncEngine::SyncEngine(const Profile &profile, QObject *parent, quint16 discover
     QTimer::singleShot(0, this, &SyncEngine::announce);
 }
 SyncEngine::~SyncEngine() {
+    m_stopping = true;
     // Dispose of sockets while counters and profile still exist (also when switching profiles).
     const auto sockets = findChildren<QTcpSocket *>(QString(), Qt::FindDirectChildrenOnly);
     for (auto *socket : sockets) delete socket;
+}
+void SyncEngine::setPaused(bool paused) {
+    m_profile.paused = paused;
+    if (!paused) return;
+    m_pendingPlain.clear(); m_pendingPeers.clear();
+    for (auto *socket : findChildren<QTcpSocket *>(QString(), Qt::FindDirectChildrenOnly)) socket->abort();
 }
 void SyncEngine::announce() {
     if (!m_profile.registered() || !m_server.isListening()) return;
@@ -74,7 +89,8 @@ void SyncEngine::contact(const QHostAddress &address, quint16 discoveryPort) {
     m_udp.writeDatagram(SecureProtocol::announcement(m_profile, port()), address, discoveryPort);
 }
 void SyncEngine::discover() {
-    while (m_udp.hasPendingDatagrams()) {
+    int processed = 0;
+    while (m_udp.hasPendingDatagrams() && processed++ < 64) {
         if (m_udp.pendingDatagramSize() > 2048) { m_udp.readDatagram(nullptr, 0); continue; }
         QByteArray bytes(int(m_udp.pendingDatagramSize()), Qt::Uninitialized);
         QHostAddress address;
@@ -90,6 +106,7 @@ void SyncEngine::discover() {
         if (isNew) contact(address, sourcePort);
         emit peersChanged();
     }
+    if (m_udp.hasPendingDatagrams()) QTimer::singleShot(0, this, &SyncEngine::discover);
 }
 QStringList SyncEngine::peerDescriptions() const {
     QStringList peers;
@@ -102,34 +119,54 @@ bool SyncEngine::send(const QJsonObject &payload) {
     if (m_profile.paused || !ClipboardPayload::validate(payload, &error)) return false;
     const QByteArray plain = QJsonDocument(payload).toJson(QJsonDocument::Compact);
     if (plain.size() > SecureProtocol::MaxWireBytes - 40 || m_peers.isEmpty()) return false;
-    bool queued = false;
-    for (const auto &peer : m_peers) queued = sendTo(peer, plain) || queued;
-    if (queued) emit message("Sending " + ClipboardPayload::description(payload));
-    return queued;
+    if (!m_pendingPeers.isEmpty()) { emit message("Transfer queue is busy; try again."); return false; }
+    m_pendingPlain = plain;
+    m_pendingPeers = m_peers.values();
+    drainOutgoing();
+    emit message("Sending " + ClipboardPayload::description(payload));
+    return true;
+}
+void SyncEngine::drainOutgoing() {
+    if (m_profile.paused || m_stopping) return;
+    const qint64 reservation = m_pendingPlain.size() + 40;
+    while (!m_pendingPeers.isEmpty() && m_connections < 8 && reservation <= TransferMemoryBudget - m_bufferedBytes) {
+        const Peer peer = m_pendingPeers.takeFirst();
+        sendTo(peer, m_pendingPlain);
+    }
+    if (m_pendingPeers.isEmpty()) m_pendingPlain.clear();
 }
 bool SyncEngine::sendTo(const Peer &peer, const QByteArray &plain) {
-    if (m_connections >= 8) { emit message("Transfer queue is busy; try again."); return false; }
+    const qint64 reservation = plain.size() + 40;
+    if (m_connections >= 8 || reservation > TransferMemoryBudget - m_bufferedBytes) {
+        emit message("Transfer queue is busy; try again."); return false;
+    }
     auto *socket = new QTcpSocket(this);
+    m_bufferedBytes += reservation;
     ++m_connections;
-    connect(socket, &QObject::destroyed, this, [this] { --m_connections; });
+    connect(socket, &QObject::destroyed, this, [this, reservation] {
+        --m_connections; m_bufferedBytes -= reservation;
+        if (!m_stopping) QTimer::singleShot(0, this, &SyncEngine::drainOutgoing);
+    });
     socket->setReadBufferSize(HelloBytes);
-    deadline(socket);
+    auto *timeout = deadline(socket);
+    const auto sent = std::make_shared<bool>(false);
     connect(socket, &QTcpSocket::errorOccurred, this, [this, socket](QAbstractSocket::SocketError) {
         emit message("Transfer failed: " + socket->errorString()); socket->deleteLater();
     });
     connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
-    connect(socket, &QTcpSocket::readyRead, this, [this, socket, peer, plain] {
+    connect(socket, &QTcpSocket::readyRead, this, [this, socket, timeout, sent, peer, plain] {
         if (m_profile.paused) { socket->abort(); return; }
-        if (socket->property("sent").toBool() || socket->bytesAvailable() < HelloBytes) return;
+        if (*sent || socket->bytesAvailable() < HelloBytes) return;
         const QByteArray hello = socket->read(HelloBytes);
         const QByteArray challenge = hello.mid(4, 32), receiver = hello.mid(36, 36);
         if (hello.left(4) != "LC2!" || receiver != peer.id.toUtf8()
             || !SecureProtocol::verify(hello.mid(72, 32), SecureProtocol::mac(m_profile, serverProof(challenge, receiver), "handshake"))) {
             socket->abort(); return;
         }
-        socket->setProperty("sent", true);
+        *sent = true; timeout->start(30000);
         const QByteArray sender = m_profile.deviceId.toUtf8();
         const QByteArray wire = SecureProtocol::seal(m_profile, plain, context(challenge, sender, receiver));
+        if (wire.isEmpty()) { socket->abort(); return; }
         QByteArray header(4, Qt::Uninitialized);
         qToBigEndian(quint32(wire.size()), reinterpret_cast<uchar *>(header.data()));
         socket->write(sender + SecureProtocol::mac(m_profile, clientProof(challenge, sender, receiver), "handshake") + header + wire);
@@ -144,40 +181,52 @@ void SyncEngine::accept() {
         socket->setParent(this);
         if (m_connections >= 8 || m_profile.paused) { socket->abort(); socket->deleteLater(); continue; }
         ++m_connections;
-        connect(socket, &QObject::destroyed, this, [this] { --m_connections; });
+        connect(socket, &QObject::destroyed, this, [this] {
+            --m_connections;
+            if (!m_stopping) QTimer::singleShot(0, this, &SyncEngine::drainOutgoing);
+        });
         // Unauthenticated connections can buffer only the identity and proof, never a file payload.
         socket->setReadBufferSize(ProofBytes);
         const QByteArray challenge = SecureProtocol::randomBytes(32), receiver = m_profile.deviceId.toUtf8();
         socket->write(QByteArray("LC2!") + challenge + receiver + SecureProtocol::mac(m_profile, serverProof(challenge, receiver), "handshake"));
-        deadline(socket);
+        auto *timeout = deadline(socket);
+        const auto transfer = std::make_shared<IncomingTransfer>();
+        connect(socket, &QObject::destroyed, this, [this, transfer] { m_bufferedBytes -= transfer->length; });
         connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
         connect(socket, &QTcpSocket::errorOccurred, socket, [socket](QAbstractSocket::SocketError) { socket->deleteLater(); });
-        connect(socket, &QTcpSocket::readyRead, this, [this, socket, challenge, receiver] {
-            if (socket->property("done").toBool()) return;
-            if (!socket->property("authenticated").toBool()) {
+        connect(socket, &QTcpSocket::readyRead, this, [this, socket, timeout, transfer, challenge, receiver] {
+            if (m_profile.paused) { socket->abort(); return; }
+            if (transfer->phase == IncomingTransfer::Done) return;
+            if (transfer->phase == IncomingTransfer::Proof) {
                 if (socket->bytesAvailable() < ProofBytes) return;
                 const QByteArray proof = socket->read(ProofBytes), sender = proof.left(36);
-                if (QUuid(QString::fromUtf8(sender)).isNull() || sender == receiver
+                const QUuid id(QString::fromUtf8(sender));
+                if (id.isNull() || id.toString(QUuid::WithoutBraces).toUtf8() != sender || sender == receiver
                     || !SecureProtocol::verify(proof.mid(36), SecureProtocol::mac(m_profile, clientProof(challenge, sender, receiver), "handshake"))) {
                     socket->abort(); return;
                 }
-                socket->setProperty("senderId", sender);
-                socket->setProperty("authenticated", true);
-                socket->setReadBufferSize(SecureProtocol::MaxWireBytes + 4);
+                transfer->sender = sender;
+                transfer->phase = IncomingTransfer::Length;
+                socket->setReadBufferSize(4);
+                timeout->start(30000);
             }
-            if (!socket->property("length").isValid()) {
+            if (transfer->phase == IncomingTransfer::Length) {
                 if (socket->bytesAvailable() < 4) return;
                 const QByteArray header = socket->read(4);
                 const quint32 length = qFromBigEndian<quint32>(reinterpret_cast<const uchar *>(header.constData()));
-                if (length < 40 || length > SecureProtocol::MaxWireBytes) { socket->abort(); return; }
-                socket->setProperty("length", length);
+                if (length < 40 || length > SecureProtocol::MaxWireBytes
+                    || length > TransferMemoryBudget - m_bufferedBytes) { socket->abort(); return; }
+                transfer->length = length;
+                m_bufferedBytes += length;
+                transfer->phase = IncomingTransfer::Payload;
+                socket->setReadBufferSize(length);
             }
-            const quint32 length = socket->property("length").toUInt();
+            const quint32 length = transfer->length;
             if (socket->bytesAvailable() < length) return;
-            socket->setProperty("done", true);
+            transfer->phase = IncomingTransfer::Done;
             QByteArray plain;
             if (!m_profile.paused && SecureProtocol::open(m_profile, socket->read(length),
-                context(challenge, socket->property("senderId").toByteArray(), receiver), &plain)) {
+                context(challenge, transfer->sender, receiver), &plain)) {
                 const QJsonObject payload = QJsonDocument::fromJson(plain).object();
                 QString error;
                 if (ClipboardPayload::validate(payload, &error)) {

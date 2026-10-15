@@ -20,4 +20,5 @@ struct Profile {
     bool save(QString *error = nullptr, const QString &directory = {}) const;
     static Profile load(const QString &directory = {});
     static QString dataDirectory();
+    static bool parseAddresses(const QString &value, QStringList *addresses);
 };

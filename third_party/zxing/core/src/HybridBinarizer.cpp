@@ -14,6 +14,8 @@
 #include <fstream>
 #include <memory>
 
+// LocalClipboard: camera-derived diagnostics require an explicit opt-in, even in Debug.
+// Never define ZXING_DEBUG_IMAGE_WRITES in application or CI builds.
 #define USE_NEW_ALGORITHM
 
 namespace ZXing {
@@ -143,7 +145,7 @@ static std::shared_ptr<BitMatrix> CalculateMatrix(const uint8_t* __restrict lumi
 {
 	auto matrix = std::make_shared<BitMatrix>(width, height);
 
-#ifndef NDEBUG
+#ifdef ZXING_DEBUG_IMAGE_WRITES
 	Matrix<uint8_t> out(width, height);
 	Matrix<uint8_t> out2(width, height);
 #endif
@@ -163,7 +165,7 @@ static std::shared_ptr<BitMatrix> CalculateMatrix(const uint8_t* __restrict lumi
 			int average = sum / 25;
 			ThresholdBlock(luminances, xoffset, yoffset, average, rowStride, *matrix);
 
-#ifndef NDEBUG
+#ifdef ZXING_DEBUG_IMAGE_WRITES
 			for (int yy = 0; yy < 8; ++yy)
 				for (int xx = 0; xx < 8; ++xx) {
 					out.set(xoffset + xx, yoffset + yy, blackPoints(x, y));
@@ -173,7 +175,7 @@ static std::shared_ptr<BitMatrix> CalculateMatrix(const uint8_t* __restrict lumi
 		}
 	}
 
-#ifndef NDEBUG
+#ifdef ZXING_DEBUG_IMAGE_WRITES
 	std::ofstream file("thresholds.pnm");
 	file << "P5\n" << out.width() << ' ' << out.height() << "\n255\n";
 	file.write(reinterpret_cast<const char*>(out.data()), out.size());
@@ -260,7 +262,7 @@ static std::shared_ptr<BitMatrix> ThresholdImage(const ImageView iv, const Matri
 {
 	auto matrix = std::make_shared<BitMatrix>(iv.width(), iv.height());
 
-#ifndef NDEBUG
+#ifdef ZXING_DEBUG_IMAGE_WRITES
 	Matrix<uint8_t> out(iv.width(), iv.height());
 #endif
 
@@ -270,7 +272,7 @@ static std::shared_ptr<BitMatrix> ThresholdImage(const ImageView iv, const Matri
 			int xoffset = std::min(x * BLOCK_SIZE, iv.width() - BLOCK_SIZE);
 			ThresholdBlock(iv.data(), xoffset, yoffset, thresholds(x, y), iv.rowStride(), *matrix);
 
-#ifndef NDEBUG
+#ifdef ZXING_DEBUG_IMAGE_WRITES
 			for (int yy = 0; yy < 8; ++yy)
 				for (int xx = 0; xx < 8; ++xx)
 					out.set(xoffset + xx, yoffset + yy, thresholds(x, y));
@@ -278,7 +280,7 @@ static std::shared_ptr<BitMatrix> ThresholdImage(const ImageView iv, const Matri
 		}
 	}
 
-#ifndef NDEBUG
+#ifdef ZXING_DEBUG_IMAGE_WRITES
 	std::ofstream file("thresholds_new.pnm");
 	file << "P5\n" << out.width() << ' ' << out.height() << "\n255\n";
 	file.write(reinterpret_cast<const char*>(out.data()), out.size());

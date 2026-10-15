@@ -4,7 +4,8 @@ Desktop Linux (Debian/Ubuntu): `./dependencies/linux.sh`.
 Desktop macOS: install Homebrew and Xcode Command Line Tools, then
 `./dependencies/macos.sh`. These scripts install packages and may require sudo.
 
-Install the Qt Multimedia module for every target kit, including Android and iOS.
+Install Qt Multimedia for desktop and iOS kits. Android uses the native Camera2
+scanner and does not ship Qt Multimedia or FFmpeg.
 QR encoding/decoding uses the bundled ZXing-C++ sources; no QR library download is needed.
 
 Other Linux distributions: C++17 compiler, CMake >=3.21.1, Ninja (optional),
@@ -12,18 +13,18 @@ Qt 6 Core, Network, Widgets, Multimedia, Test and platform plugins. Windows: MSV
 and NSIS (e.g. `choco install nsis`). Linux packaging uses `dpkg-dev`; macOS uses
 `macdeployqt`, Python 3, `pkgbuild` and `productbuild` from the development tools.
 
-Android on Linux/macOS additionally requires JDK 17, Android SDK command-line tools,
+Android on Linux/macOS additionally requires JDK 21, Android SDK command-line tools,
 platform/build tools and an NDK compatible with your Qt version. Install matching
 Qt desktop (host tools) and Qt Android kits through the Qt installer.
-For the pinned CI Qt 6.8.3 toolchain: SDK 35, build-tools 35.0.0, NDK 26.1.10909125.
+For the pinned CI Qt 6.11.2 toolchain: SDK 36, build-tools 36.0.0, NDK 27.2.12479018.
 Desktop package-manager Qt and Android Qt must have matching versions when used together.
 
 ```sh
-sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
-export QT_ANDROID_ROOT=/path/to/Qt/6.8.3/android_arm64_v8a
-export QT_HOST_PATH=/path/to/Qt/6.8.3/gcc_64 # macOS: macos
+sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018'
+export QT_ANDROID_ROOT=/path/to/Qt/6.11.2/android_arm64_v8a
+export QT_HOST_PATH=/path/to/Qt/6.11.2/gcc_64 # macOS: macos
 export ANDROID_SDK_ROOT=/path/to/Android/sdk
-export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125"
+export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
 ./scripts/build -t android
 ```
 
@@ -33,11 +34,12 @@ not include the Android kit. The installers do not accept licenses automatically
 
 ## Android — Qt 6
 
-Android uses the shared C++/Qt Widgets application in `src/`, built from the root
-CMake project. Qt generates the Gradle project and APK deployment configuration.
+Android uses the Qt Quick interface in `qml/`, the C++ controller/session in `src/`
+and the shared protocol core. Install Qt Declarative (Quick, QuickControls2) in both
+kits. The root CMake project generates the Gradle project and APK configuration.
 The `android/` directory supplies a custom manifest, QtActivity subclass for Share
 intents and FileProvider clipboard URIs, and a separate QtService with reboot
-registration. The target is SDK 35 with minimum SDK 26; CMake uses this package source.
+registration. The target is SDK 36 with minimum SDK 28; CMake uses this package source.
 
 After installing the dependencies above, run:
 
@@ -83,13 +85,13 @@ save the connection code, uninstall once explicitly, then install and rejoin.
 Install **full Xcode**, its iOS SDK, and matching Qt iOS / macOS host kits. The
 Homebrew desktop Qt package and Xcode Command Line Tools cannot build for iPhone.
 Use `xcode-select -p` and `xcrun --sdk iphoneos --show-sdk-path` to verify Xcode setup.
-The supported deployment target here is iOS 16+; CI uses Qt 6.8.3 and the runner's Xcode.
+The supported deployment target here is iOS 17+; CI uses Qt 6.11.2 and the runner's Xcode.
 The Qt iOS kit must include its native AVFoundation multimedia plugin. CMake selects
 only that media backend for QR camera capture, so FFmpeg libraries are not required.
 
 ```sh
-export QT_IOS_ROOT="$HOME/Qt/6.8.3/ios"
-export QT_HOST_PATH="$HOME/Qt/6.8.3/macos"
+export QT_IOS_ROOT="$HOME/Qt/6.11.2/ios"
+export QT_HOST_PATH="$HOME/Qt/6.11.2/macos"
 ./scripts/build -t ios
 ```
 
@@ -105,18 +107,18 @@ See [installation and device verification](../packaging/ios/README.md).
 
 Для компьютера с Linux (Debian/Ubuntu): `./dependencies/linux.sh`. Для macOS установите Homebrew и Xcode Command Line Tools, затем выполните `./dependencies/macos.sh`. Эти скрипты устанавливают пакеты и могут потребовать sudo.
 
-Установите модуль Qt Multimedia для каждого используемого комплекта, включая Android и iOS. Для генерации и распознавания QR используются включённые исходники ZXing-C++; отдельно скачивать библиотеку QR не нужно.
+Установите Qt Multimedia для комплектов компьютеров и iOS. Android использует нативную камеру Camera2 и не включает Qt Multimedia или FFmpeg. Для генерации и распознавания QR используются включённые исходники ZXing-C++; отдельно скачивать библиотеку QR не нужно.
 
 Для других дистрибутивов Linux нужны компилятор C++17, CMake 3.21.1 или новее, Ninja при желании, Qt 6 Core, Network, Widgets, Multimedia, Test и плагины платформы. Для Windows нужны MSVC, Qt 6 для компьютеров и NSIS, например `choco install nsis`. Упаковка Linux использует `dpkg-dev`; macOS — `macdeployqt`, Python 3, `pkgbuild` и `productbuild` из инструментов разработки.
 
-Для Android на Linux или macOS дополнительно нужны JDK 17, инструменты командной строки Android SDK, инструменты платформы и сборки, а также NDK, совместимый с вашей версией Qt. Установите комплекты Qt для компьютера с инструментами сборки и Qt для Android через установщик Qt. Для закреплённого в CI Qt 6.8.3 используются SDK 35, build-tools 35.0.0 и NDK 26.1.10909125. Если Qt из пакетного менеджера компьютера используется вместе с Qt для Android, их версии должны совпадать.
+Для Android на Linux или macOS дополнительно нужны JDK 21, инструменты командной строки Android SDK, инструменты платформы и сборки, а также NDK, совместимый с вашей версией Qt. Установите комплекты Qt для компьютера с инструментами сборки и Qt для Android через установщик Qt. Для закреплённого в CI Qt 6.11.2 используются SDK 36, build-tools 36.0.0 и NDK 27.2.12479018. Если Qt из пакетного менеджера компьютера используется вместе с Qt для Android, их версии должны совпадать.
 
 ```sh
-sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
-export QT_ANDROID_ROOT=/path/to/Qt/6.8.3/android_arm64_v8a
-export QT_HOST_PATH=/path/to/Qt/6.8.3/gcc_64 # Для macOS: macos
+sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018'
+export QT_ANDROID_ROOT=/path/to/Qt/6.11.2/android_arm64_v8a
+export QT_HOST_PATH=/path/to/Qt/6.11.2/gcc_64 # Для macOS: macos
 export ANDROID_SDK_ROOT=/path/to/Android/sdk
-export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125"
+export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
 ./scripts/build -t android
 ```
 
@@ -124,7 +126,7 @@ export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125"
 
 ### Android — Qt 6
 
-Android использует общее приложение C++/Qt Widgets из `src/`, которое собирается из корневого проекта CMake. Qt создаёт проект Gradle и настройки развёртывания APK. Каталог `android/` содержит собственный манифест, подкласс QtActivity для обработки действий «Поделиться» и URI буфера через FileProvider, а также отдельную QtService с запуском после перезагрузки. Целевая версия SDK — 35, минимальная — 26; CMake использует этот каталог исходников пакета.
+Android использует интерфейс Qt Quick из `qml/`, контроллер и сессию C++ из `src/` и общее ядро протокола. В обоих комплектах нужен Qt Declarative (Quick, QuickControls2). Корневой проект CMake создаёт проект Gradle и настройки APK. Каталог `android/` содержит манифест, подкласс QtActivity для «Поделиться» и URI буфера через FileProvider, а также отдельную QtService с запуском после перезагрузки. Целевой SDK — 36, минимальный — 28 (Android 9).
 
 После установки перечисленных зависимостей выполните:
 
@@ -143,13 +145,13 @@ Android принимает обновление только с тем же кл
 
 ### iOS / iPadOS
 
-Установите **полный Xcode**, его iOS SDK и совпадающие версии комплектов Qt для iOS и macOS с инструментами сборки. Qt для компьютера из Homebrew и Xcode Command Line Tools не позволяют собирать приложение для iPhone. Проверьте настройку Xcode командами `xcode-select -p` и `xcrun --sdk iphoneos --show-sdk-path`. Поддерживается iOS 16 и новее; CI использует Qt 6.8.3 и Xcode машины сборки.
+Установите **полный Xcode**, его iOS SDK и совпадающие версии комплектов Qt для iOS и macOS с инструментами сборки. Qt для компьютера из Homebrew и Xcode Command Line Tools не позволяют собирать приложение для iPhone. Проверьте настройку Xcode командами `xcode-select -p` и `xcrun --sdk iphoneos --show-sdk-path`. Поддерживается iOS 17 и новее; CI использует Qt 6.11.2 и Xcode машины сборки.
 
 Комплект Qt для iOS должен содержать нативный мультимедийный плагин AVFoundation. CMake выбирает только этот модуль для сканирования QR камерой, поэтому библиотеки FFmpeg не требуются.
 
 ```sh
-export QT_IOS_ROOT="$HOME/Qt/6.8.3/ios"
-export QT_HOST_PATH="$HOME/Qt/6.8.3/macos"
+export QT_IOS_ROOT="$HOME/Qt/6.11.2/ios"
+export QT_HOST_PATH="$HOME/Qt/6.11.2/macos"
 ./scripts/build -t ios
 ```
 

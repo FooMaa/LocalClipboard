@@ -19,6 +19,7 @@
         android:label="LocalClipboard" android:hardwareAccelerated="true"
         android:allowBackup="false" android:usesCleartextTraffic="false">
         <activity android:name="org.localclipboard.ClipboardActivity" android:exported="true"
+            android:theme="@style/LocalClipboardTheme"
             android:launchMode="singleTop" android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density">
             <intent-filter>

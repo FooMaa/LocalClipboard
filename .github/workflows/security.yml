@@ -1,0 +1,35 @@
+name: Security regression checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  sanitizers:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          ./dependencies/linux.sh
+          sudo apt-get install -y clang
+      - name: Build instrumented code, including bundled parsers and crypto
+        run: |
+          cmake -S . -B build_security -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DLOCALCLIPBOARD_SANITIZERS=ON
+          cmake --build build_security --parallel 4 --target clipboard_tests app_tests
+      - name: Run security and application regressions
+        # Qt's offscreen plugin retains process-global objects. Memory access and UB checks remain active.
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build_security --output-on-failure
+      - name: Check signing arguments and APK validation
+        run: python3 tests/AndroidPackagingTests.py
+      - name: Fuzz protocol and clipboard parsers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          cmake -S . -B build_fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DBUILD_TESTING=OFF -DLOCALCLIPBOARD_FUZZING=ON
+          cmake --build build_fuzz --parallel 4 --target protocol_fuzz
+          mkdir -p build_fuzz/corpus
+          printf '%s' '{"kind":"text","text":"hello","html":""}' > build_fuzz/corpus/text
+          printf '%s' '{"kind":"files","files":[{"name":"a.txt","size":0,"data":""}]}' > build_fuzz/corpus/file
+          build_fuzz/protocol_fuzz -max_total_time=60 -max_len=65536 build_fuzz/corpus

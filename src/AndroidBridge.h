@@ -16,9 +16,10 @@ void stopService();
 void queueOutgoing(const Profile &profile, const QJsonObject &payload, QObject *owner, const std::function<void(const QString &)> &done);
 void consumeInbox(const Profile &profile, QObject *owner, const std::function<void(const QJsonObject &)> &apply);
 void acknowledgeInbox();
-void consumeShares(QObject *owner, const std::function<void(const QJsonObject &)> &send, const std::function<void(const QString &)> &error);
+bool consumeShares(QObject *owner, const std::function<void(const QJsonObject &)> &send, const std::function<void(const QString &)> &error);
 QStringList peerDescriptions(const Profile &profile);
 void copyFiles(const QList<QUrl> &urls);
 void openReceivedFiles(QWidget *parent);
+void openFile(const QString &path);
 int runService(QCoreApplication &app);
 }

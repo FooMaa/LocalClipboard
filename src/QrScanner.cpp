@@ -2,6 +2,7 @@
 #include "QrCode.h"
 #include "Ui.h"
 #include "I18n.h"
+#ifndef Q_OS_ANDROID
 #include <QApplication>
 #include <QCamera>
 #include <QCameraDevice>
@@ -19,6 +20,7 @@
 #include <QVideoFrame>
 #include <QVideoSink>
 #include <QTimer>
+#endif
 #ifdef Q_OS_ANDROID
 #include "AndroidUi.h"
 #endif

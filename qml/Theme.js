@@ -1,0 +1,10 @@
+.pragma library
+var background = "#0d1222"
+var surface = "#192138"
+var elevated = "#222d47"
+var line = "#303d59"
+var text = "#f1f4ff"
+var muted = "#a6b3ce"
+var accent = "#a8baff"
+var positive = "#79dfba"
+var negative = "#ffb4ab"

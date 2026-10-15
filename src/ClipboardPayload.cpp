@@ -1,5 +1,6 @@
 #include "ClipboardPayload.h"
 #include "I18n.h"
+#include "FileStorage.h"
 #include <QBuffer>
 #include <QCryptographicHash>
 #include <QDir>
@@ -31,12 +32,21 @@ bool imageSize(const QByteArray &bytes) {
     return size.isValid() && size.width() <= 8192 && size.height() <= 8192
         && qint64(size.width()) * size.height() <= 32 * 1024 * 1024;
 }
+bool onlyKeys(const QJsonObject &object, std::initializer_list<const char *> allowed) {
+    for (auto it = object.begin(); it != object.end(); ++it) {
+        bool known = false;
+        for (const char *key : allowed) known |= it.key() == QLatin1String(key);
+        if (!known) return false;
+    }
+    return true;
+}
+QString nameKey(const QString &name) { return name.normalized(QString::NormalizationForm_C).toCaseFolded(); }
 }
 bool ClipboardPayload::safeName(const QString &name) {
     if (name.isEmpty() || name.size() > 128 || name == "." || name == ".."
         || name.endsWith('.') || name.endsWith(' ')) return false;
-    if (QRegularExpression(QStringLiteral("[\\x00-\\x1f<>:\"/\\\\|?*]")).match(name).hasMatch()) return false;
-    return !QRegularExpression(QStringLiteral("^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\.|$)"),
+    if (QRegularExpression(QStringLiteral("[\\x00-\\x1f\\x7f<>:\"/\\\\|?*\\x{202a}-\\x{202e}\\x{2066}-\\x{2069}]")).match(name).hasMatch()) return false;
+    return !QRegularExpression(QStringLiteral("^(CON|PRN|AUX|NUL|CONIN\\$|CONOUT\\$|COM[1-9¹²³]|LPT[1-9¹²³])(?:\\.|$)"),
                                QRegularExpression::CaseInsensitiveOption).match(name).hasMatch();
 }
 QJsonObject ClipboardPayload::fromFiles(const QList<QUrl> &urls, QString *error) {
@@ -54,9 +64,9 @@ QJsonObject ClipboardPayload::fromFiles(const QList<QUrl> &urls, QString *error)
         QString name = info.fileName();
         if (!safeName(name)) name = QStringLiteral("file-%1").arg(files.size() + 1);
         const QString original = name;
-        for (int suffix = 2; names.contains(name.toCaseFolded()); ++suffix)
+        for (int suffix = 2; names.contains(nameKey(name)); ++suffix)
             name = QStringLiteral("%1-%2").arg(original.left(110)).arg(suffix);
-        names.insert(name.toCaseFolded());
+        names.insert(nameKey(name));
         QFile file(path);
         if (!file.open(QIODevice::ReadOnly)) { fail(error, "Cannot read " + name + ": " + file.errorString()); return {}; }
         const QByteArray bytes = file.read(MaxContentBytes - total + 1);
@@ -98,14 +108,17 @@ QJsonObject ClipboardPayload::capture(const QMimeData *mime, QString *error) {
 bool ClipboardPayload::validate(const QJsonObject &p, QString *error) {
     const QString kind = p.value("kind").toString();
     if (kind == "text") {
+        if (!onlyKeys(p, {"kind", "text", "html"}) || (p.contains("text") && !p.value("text").isString())
+            || (p.contains("html") && !p.value("html").isString())) return fail(error, "Invalid text payload.");
         const QString text = p.value("text").toString(), html = p.value("html").toString();
         if ((text.isEmpty() && html.isEmpty()) || text.trimmed().startsWith("LC2.")
             || text.toUtf8().size() + html.toUtf8().size() > MaxContentBytes) return fail(error, "Invalid text payload.");
     } else if (kind == "image") {
+        if (!onlyKeys(p, {"kind", "png"}) || !p.value("png").isString()) return fail(error, "Invalid or oversized PNG.");
         const QByteArray png = decode(p.value("png").toString());
         if (png.isEmpty() || png.size() > MaxContentBytes || !imageSize(png)) return fail(error, "Invalid or oversized PNG.");
     } else if (kind == "files") {
-        if (!p.value("files").isArray()) return fail(error, "Invalid file list.");
+        if (!onlyKeys(p, {"kind", "files"}) || !p.value("files").isArray()) return fail(error, "Invalid file list.");
         const QJsonArray files = p.value("files").toArray();
         if (files.isEmpty() || files.size() > MaxFiles) return fail(error, "Invalid file count.");
         QSet<QString> names;
@@ -113,14 +126,15 @@ bool ClipboardPayload::validate(const QJsonObject &p, QString *error) {
         for (const auto &item : files) {
             const QJsonObject file = item.toObject();
             const QString name = file.value("name").toString();
-            if (!safeName(name) || names.contains(name.toCaseFolded()) || !file.value("data").isString()) return fail(error, "Unsafe or duplicate filename.");
+            if (!onlyKeys(file, {"name", "data", "size"}) || !safeName(name) || names.contains(nameKey(name))
+                || !file.value("data").isString()) return fail(error, "Unsafe or duplicate filename.");
             const QString encoded = file.value("data").toString();
             const QByteArray bytes = decode(encoded);
             if ((!encoded.isEmpty() && bytes.isEmpty()) || !file.value("size").isDouble()
                 || file.value("size").toDouble() != bytes.size()) return fail(error, "Invalid file data or size.");
             total += bytes.size();
             if (total > MaxContentBytes) return fail(error, "Files exceed 32 MiB.");
-            names.insert(name.toCaseFolded());
+            names.insert(nameKey(name));
         }
     } else return fail(error, "Unsupported clipboard format.");
     return true;
@@ -146,6 +160,15 @@ QMimeData *ClipboardPayload::materialize(const QJsonObject &p, const QString &di
     if (kind == "image") {
         const QByteArray png = decode(p.value("png").toString());
         files.append(QJsonObject{{"name", "clipboard.png"}, {"data", QString::fromLatin1(png.toBase64())}, {"size", png.size()}});
+    }
+    qint64 storageBytes = 0;
+    for (const auto &item : files) storageBytes += qint64(item.toObject().value("size").toDouble());
+    if (QFileInfo(directory).isSymLink() || !QDir().mkpath(directory)
+        || !QFile::setPermissions(directory, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner)
+        || !FileStorage::canReceive(directory, storageBytes, files.size(), error)) {
+        delete mime;
+        if (error && error->isEmpty()) *error = "Cannot create received-files directory.";
+        return nullptr;
     }
     const QString folder = QDir(directory).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces));
     if (!QDir().mkpath(folder)) { delete mime; fail(error, "Cannot create received-files directory."); return nullptr; }

@@ -47,7 +47,7 @@ if [[ "$target" == ios ]]; then
     : "${QT_IOS_ROOT:?Set QT_IOS_ROOT to the Qt iOS kit prefix}"
     [[ -x "$QT_IOS_ROOT/bin/qt-cmake" ]] || fail "iOS qt-cmake not found"
     ios_args=(-G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64
-        -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY -DBUILD_TESTING=OFF
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY -DBUILD_TESTING=OFF
         "-DLOCALCLIPBOARD_IOS_TEAM=${IOS_TEAM_ID:-}" "-DLOCALCLIPBOARD_IOS_BUNDLE_ID=${IOS_BUNDLE_ID:-org.localclipboard.ios}")
     [[ -z ${QT_HOST_PATH:-} ]] || ios_args+=("-DQT_HOST_PATH=$QT_HOST_PATH")
     "$QT_IOS_ROOT/bin/qt-cmake" "${args[@]}" "${ios_args[@]}" "$@"
@@ -68,13 +68,22 @@ elif [[ "$target" == android ]]; then
     [[ -x "$QT_ANDROID_ROOT/bin/qt-cmake" ]] || fail "Android qt-cmake not found"
     [[ -d "$QT_HOST_PATH" && -d "$ANDROID_SDK_ROOT" && -f "$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" ]] || fail "Invalid Qt host, SDK or NDK path"
     [[ -f "$QT_HOST_PATH/lib/cmake/Qt6CoreTools/Qt6CoreToolsConfig.cmake" ]] || fail "QT_HOST_PATH must point to the desktop Qt kit containing Qt6CoreTools, not the Android kit: $QT_HOST_PATH"
-    [[ -x "$QT_HOST_PATH/libexec/moc" || -x "$QT_HOST_PATH/bin/moc" || -x "$QT_HOST_PATH/bin/moc.exe" ]] || fail "Qt host moc executable not found: $QT_HOST_PATH"
+    [[ -x "$QT_HOST_PATH/libexec/moc" || -x "$QT_HOST_PATH/share/qt/libexec/moc" || -x "$QT_HOST_PATH/bin/moc" || -x "$QT_HOST_PATH/bin/moc.exe" ]] || fail "Qt host moc executable not found: $QT_HOST_PATH"
     command -v java >/dev/null || fail "Java is required"
     "$QT_ANDROID_ROOT/bin/qt-cmake" "${args[@]}" "-DQT_HOST_PATH=$QT_HOST_PATH" \
         "-DQT_HOST_PATH_CMAKE_DIR=$QT_HOST_PATH/lib/cmake" \
         "-DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" "-DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT" \
-        "-DANDROID_ABI=$abi" "$@"
+        "-DANDROID_ABI=$abi" -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON "$@"
     cmake --build "$build_dir" --config "$config" --parallel "$jobs" --target apk
+    if [[ "$config" != Debug && -n ${LC_ANDROID_KEYSTORE:-} ]]; then
+        unsigned_apk=
+        while IFS= read -r -d '' candidate; do
+            [[ -z "$unsigned_apk" ]] || fail "Multiple unsigned APKs found; use a clean build directory"
+            unsigned_apk=$candidate
+        done < <(find "$build_dir" -type f -path '*/outputs/apk/*' -name '*unsigned.apk' -print0)
+        [[ -n "$unsigned_apk" ]] || fail "No unsigned release APK found"
+        "$ROOT/scripts/sign-android" "$unsigned_apk" "${unsigned_apk%-unsigned.apk}-signed.apk"
+    fi
     if [[ "$package" == true ]]; then "$ROOT/scripts/package" -t android -b "$build_dir" -c "$config"; fi
 else
     cmake "${args[@]}" "$@"

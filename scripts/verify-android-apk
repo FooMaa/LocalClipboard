@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Check ELF load-segment alignment in the actual APK; zipalign checks ZIP offsets separately."""
+import struct
+import sys
+import zipfile
+
+
+def verify(path):
+    checked = 0
+    with zipfile.ZipFile(path) as archive:
+        for entry in archive.infolist():
+            if not entry.filename.startswith('lib/') or not entry.filename.endswith('.so'):
+                continue
+            if entry.file_size > 256 * 1024 * 1024:
+                raise ValueError('Oversized native library: ' + entry.filename)
+            data = archive.read(entry)
+            if data[:4] != b'\x7fELF' or data[5] != 1:
+                raise ValueError('Unsupported ELF: ' + entry.filename)
+            if data[4] == 2:
+                offset = struct.unpack_from('<Q', data, 32)[0]
+                size, count = struct.unpack_from('<HH', data, 54)
+                load_format, alignment_offset = '<Q', 48
+            elif data[4] == 1:
+                offset = struct.unpack_from('<I', data, 28)[0]
+                size, count = struct.unpack_from('<HH', data, 42)
+                load_format, alignment_offset = '<I', 28
+            else:
+                raise ValueError('Invalid ELF class: ' + entry.filename)
+            loads = 0
+            for index in range(count):
+                header = offset + index * size
+                if struct.unpack_from('<I', data, header)[0] == 1:
+                    loads += 1
+                    if struct.unpack_from(load_format, data, header + alignment_offset)[0] < 16384:
+                        raise ValueError('Library needs 16 KiB alignment: ' + entry.filename)
+            if not loads:
+                raise ValueError('ELF has no loadable segments: ' + entry.filename)
+            checked += 1
+    if not checked:
+        raise ValueError('APK contains no native libraries')
+    print('16 KiB ELF alignment verified for', checked, 'native libraries.')
+
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        sys.exit('Usage: scripts/verify-android-apk APPLICATION.apk')
+    try:
+        verify(sys.argv[1])
+    except (ValueError, IndexError, struct.error, OSError, zipfile.BadZipFile) as error:
+        sys.exit(str(error))

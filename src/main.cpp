@@ -43,6 +43,7 @@ public:
 #endif
 #ifdef Q_OS_ANDROID
 #include "AndroidBridge.h"
+#include "MobileApp.h"
 #endif
 
 namespace {
@@ -80,6 +81,10 @@ int main(int argc, char *argv[]) {
 #ifdef Q_OS_ANDROID
     AndroidBridge::setLanguage(I18n::language());
     QObject::connect(&I18n::instance(), &I18n::languageChanged, &app, [] { AndroidBridge::setLanguage(I18n::language()); });
+#endif
+// Android uses the GPU-rendered Quick interface; Widgets remain the desktop/iOS view.
+#ifdef Q_OS_ANDROID
+    return runMobileApp(app);
 #endif
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     if (app.arguments().contains("--quit")) return Uninstall::requestQuit() ? 0 : 1;

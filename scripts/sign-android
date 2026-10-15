@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Password values are read by apksigner from the environment, never command arguments.
+[[ $# == 2 ]] || { echo 'Usage: scripts/sign-android UNSIGNED_APK SIGNED_APK' >&2; exit 1; }
+: "${ANDROID_SDK_ROOT:?Set ANDROID_SDK_ROOT}"
+: "${LC_ANDROID_KEYSTORE:?Set LC_ANDROID_KEYSTORE to your private release keystore}"
+: "${LC_ANDROID_KEY_ALIAS:?Set LC_ANDROID_KEY_ALIAS}"
+: "${LC_ANDROID_STORE_PASSWORD:?Set LC_ANDROID_STORE_PASSWORD}"
+: "${LC_ANDROID_KEY_PASSWORD:?Set LC_ANDROID_KEY_PASSWORD}"
+tools="$ANDROID_SDK_ROOT/build-tools/${LC_ANDROID_BUILD_TOOLS:-36.0.0}"
+[[ -f "$1" && -f "$LC_ANDROID_KEYSTORE" && -x "$tools/apksigner" && -x "$tools/zipalign" ]] || {
+    echo 'Missing APK, keystore or Android build tools.' >&2; exit 1;
+}
+[[ "$1" != "$2" ]] || { echo 'Input and output APK must differ.' >&2; exit 1; }
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+"$tools/zipalign" -P 16 -f 4 "$1" "$stage/aligned.apk"
+"$tools/apksigner" sign --ks "$LC_ANDROID_KEYSTORE" --ks-key-alias "$LC_ANDROID_KEY_ALIAS" \
+    --ks-pass env:LC_ANDROID_STORE_PASSWORD --key-pass env:LC_ANDROID_KEY_PASSWORD \
+    --out "$stage/signed.apk" "$stage/aligned.apk"
+"$tools/apksigner" verify --verbose "$stage/signed.apk"
+"$tools/zipalign" -c -P 16 4 "$stage/signed.apk"
+cp "$stage/signed.apk" "$2"

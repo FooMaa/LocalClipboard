@@ -15,7 +15,7 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         if: runner.os != 'Linux'
         with:
-          version: '6.8.3'
+          version: '6.11.2'
           modules: 'qtmultimedia'
           cache: true
       - uses: ilammy/msvc-dev-cmd@v1
@@ -31,6 +31,13 @@ jobs:
         run: |
           cmake --build build_desktop --config Release --parallel 4 --target clipboard_tests app_tests
           ctest --test-dir build_desktop -C Release --output-on-failure
+      - name: Test Android interface layouts, translation and scrolling
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cmake -S . -B build_mobile_ui -DCMAKE_BUILD_TYPE=Release -DLOCALCLIPBOARD_MOBILE_PREVIEW=ON
+          cmake --build build_mobile_ui --parallel 4 --target mobile_tests
+          ctest --test-dir build_mobile_ui -R mobile_interface --output-on-failure
       - name: Save test failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -68,13 +75,13 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
           log-accepted-android-sdk-licenses: 'false'
       - name: Install Android SDK and NDK
-        run: sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
+        run: sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018'
       - name: Restore Android development signing key
         if: env.ANDROID_DEBUG_KEYSTORE_BASE64 == ''
         uses: actions/cache@v4
@@ -97,8 +104,7 @@ jobs:
           keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
       - uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.3'
-          modules: 'qtmultimedia'
+          version: '6.11.2'
           target: android
           arch: android_arm64_v8a
           cache: true
@@ -107,8 +113,14 @@ jobs:
         run: |
           export QT_ANDROID_ROOT="$QT_ROOT_DIR"
           : "${QT_HOST_PATH:?Qt installer did not provide the desktop host kit}"
-          export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125"
+          export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
           ./scripts/build -t android -c Debug
+      - name: Verify APK signature and 16 KiB compatibility
+        shell: bash
+        run: |
+          python3 scripts/verify-android-apk dist/LocalClipboard-android-package.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose dist/LocalClipboard-android-package.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -c -P 16 4 dist/LocalClipboard-android-package.apk
       - uses: actions/upload-artifact@v4
         with:
           name: LocalClipboard-Android
@@ -120,7 +132,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.3'
+          version: '6.11.2'
           modules: 'qtmultimedia'
           target: ios
           arch: ios

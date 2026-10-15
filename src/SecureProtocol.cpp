@@ -5,6 +5,7 @@
 #include <QRandomGenerator>
 #include <QtEndian>
 #include <QUuid>
+#include <cmath>
 
 namespace {
 const uint8_t *ptr(const QByteArray &v) { return reinterpret_cast<const uint8_t *>(v.constData()); }
@@ -44,15 +45,19 @@ QByteArray SecureProtocol::announcement(const Profile &p, quint16 port) {
     return QJsonDocument(obj).toJson(QJsonDocument::Compact);
 }
 bool SecureProtocol::readAnnouncement(const Profile &p, const QByteArray &bytes, QJsonObject *object) {
-    if (bytes.size() > 2048 || !p.registered()) return false;
+    if (!object || bytes.size() > 2048 || !p.registered()) return false;
     QJsonObject obj = QJsonDocument::fromJson(bytes).object();
-    const QByteArray tag = QByteArray::fromHex(obj.take("mac").toString().toLatin1());
-    if (obj.value("version").toInt() != 2 || obj.value("group").toString() != p.groupId()
+    const auto encodedMac = obj.take("mac").toString().toLatin1();
+    const QByteArray tag = QByteArray::fromHex(encodedMac);
+    if (obj.size() != 6 || encodedMac.size() != 64 || tag.toHex() != encodedMac
+        || obj.value("version").toInt() != 2 || obj.value("group").toString() != p.groupId()
         || QUuid(obj.value("id").toString()).isNull()
-        || obj.value("id").toString().size() != 36
+        || QUuid(obj.value("id").toString()).toString(QUuid::WithoutBraces) != obj.value("id").toString()
+        || obj.value("name").toString().trimmed().isEmpty()
         || obj.value("name").toString().size() > 80
         || obj.value("port").toInt() < 1 || obj.value("port").toInt() > 65535
         || !obj.value("time").isDouble()
+        || !std::isfinite(obj.value("time").toDouble())
         || qAbs(double(QDateTime::currentSecsSinceEpoch()) - obj.value("time").toDouble()) > 60
         || !verify(tag, mac(p, QJsonDocument(obj).toJson(QJsonDocument::Compact), "discovery"))) return false;
     *object = obj;
@@ -67,7 +72,7 @@ QByteArray SecureProtocol::seal(const Profile &p, const QByteArray &plain, const
     return nonce + tag + encrypted;
 }
 bool SecureProtocol::open(const Profile &p, const QByteArray &wire, const QByteArray &context, QByteArray *plain) {
-    if (!p.registered() || wire.size() < 40 || wire.size() > MaxWireBytes) return false;
+    if (!plain || !p.registered() || wire.size() < 40 || wire.size() > MaxWireBytes) return false;
     QByteArray key = subkey(p, "transfer"), result(wire.size() - 40, Qt::Uninitialized);
     const int status = crypto_aead_unlock(ptr(result), ptr(wire) + 24, ptr(key), ptr(wire),
                                         ptr(context), size_t(context.size()), ptr(wire) + 40, size_t(result.size()));

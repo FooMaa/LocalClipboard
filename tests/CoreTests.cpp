@@ -3,6 +3,8 @@
 #include "PendingFiles.h"
 #include "SecureProtocol.h"
 #include "SyncEngine.h"
+#include "FileStorage.h"
+#include "SecretStore.h"
 #include <QBuffer>
 #include <QFile>
 #include <QImage>
@@ -118,6 +120,69 @@ private slots:
         QString error;
         QVERIFY(ClipboardPayload::fromFiles({QUrl::fromLocalFile(file.fileName())}, &error).isEmpty());
         QVERIFY(!ClipboardPayload::validate(text(QString(ClipboardPayload::MaxContentBytes + 1, 'a')), &error));
+    }
+    void malformedSchemasAndFilenameAliasesAreRejected() {
+        QString error;
+        QVERIFY(!ClipboardPayload::validate({{"kind", "text"}, {"text", "hello"}, {"extra", "hidden"}}, &error));
+        QVERIFY(!ClipboardPayload::validate({{"kind", "text"}, {"text", "hello"}, {"html", QJsonArray{}}}, &error));
+        const auto entry = [](const QString &name) { return QJsonObject{{"name", name}, {"size", 0}, {"data", ""}}; };
+        // Filesystems may normalize Unicode before creating a filename.
+        const QJsonObject duplicates{{"kind", "files"}, {"files", QJsonArray{entry(QString::fromUtf8("é.txt")), entry(QString::fromUtf8("é.txt"))}}};
+        QVERIFY(!ClipboardPayload::validate(duplicates, &error));
+        QVERIFY(!ClipboardPayload::safeName(QString::fromUtf8("COM¹.txt")));
+        QVERIFY(!ClipboardPayload::safeName(QString::fromUtf8("report\u202Eexe.txt")));
+        QVERIFY(!ClipboardPayload::safeName("CONOUT$.txt"));
+        Profile p = profile(); p.deviceId = "{" + p.deviceId + "}";
+        QVERIFY(!p.registered());
+        p = profile(); p.deviceName = "phone\nspoofed"; QVERIFY(!p.registered());
+        QTemporaryDir directory;
+        QVERIFY(!p.save(&error, directory.path()));
+        QVERIFY(!QFile::exists(directory.filePath("profile.json")));
+        QVERIFY(SecretStore::decode("not-a-profile-key").isEmpty());
+        QStringList addresses{"preserved"};
+        QVERIFY(!Profile::parseAddresses("192.168.1.1 not-an-ip", &addresses));
+        QCOMPARE(addresses, QStringList{"preserved"});
+        QVERIFY(Profile::parseAddresses("192.168.1.1, 192.168.1.1;10.0.0.2", &addresses));
+        QCOMPARE(addresses.size(), 2);
+    }
+    void receivedStorageIsBoundedWithoutDeletingExistingFiles() {
+        QTemporaryDir directory;
+        QVERIFY(QDir(directory.path()).mkpath("batch"));
+        QFile existing(directory.filePath("batch/large.bin")); QVERIFY(existing.open(QIODevice::WriteOnly));
+        QVERIFY(existing.resize(FileStorage::MaxReceivedBytes - 1)); existing.close();
+        QString error;
+        QVERIFY(!FileStorage::canReceive(directory.path(), 2, 1, &error));
+        QVERIFY(!error.isEmpty()); QVERIFY(existing.exists());
+        QVERIFY(FileStorage::isReceivedFile(existing.fileName(), directory.path()));
+        QVERIFY(!FileStorage::isReceivedFile(directory.filePath("../outside"), directory.path()));
+        QVERIFY(existing.open(QIODevice::WriteOnly)); QVERIFY(existing.resize(0)); existing.close();
+        QVERIFY(FileStorage::canReceive(directory.path(), 32, 1, &error));
+    }
+    void authenticatedTransfersShareOneReceiveBudget() {
+        const Profile recipient = profile(); Profile member = profile(); member.key = recipient.key;
+        SyncEngine receiver(recipient, nullptr, 0, 0);
+        QSignalSpy delivered(&receiver, &SyncEngine::received);
+        const auto reserve = [&](QTcpSocket &socket) {
+            socket.connectToHost(QHostAddress::LocalHost, receiver.port());
+            QTRY_VERIFY(socket.bytesAvailable() >= 104);
+            const QByteArray hello = socket.read(104), challenge = hello.mid(4, 32), id = hello.mid(36, 36);
+            const QByteArray sender = member.deviceId.toUtf8();
+            QByteArray header(4, Qt::Uninitialized);
+            qToBigEndian(quint32(SecureProtocol::MaxWireBytes), reinterpret_cast<uchar *>(header.data()));
+            socket.write(sender + SecureProtocol::mac(member, QByteArray("client/") + challenge + sender + id, "handshake") + header);
+        };
+        QTcpSocket first, second, excess, retry;
+        reserve(first); reserve(second); QTest::qWait(30);
+        reserve(excess); QTRY_COMPARE(excess.state(), QAbstractSocket::UnconnectedState);
+        QCOMPARE(first.state(), QAbstractSocket::ConnectedState);
+        QCOMPARE(second.state(), QAbstractSocket::ConnectedState);
+        first.abort(); QTest::qWait(30);
+        reserve(retry); QTest::qWait(30);
+        QCOMPARE(retry.state(), QAbstractSocket::ConnectedState);
+        QCOMPARE(delivered.size(), 0);
+        receiver.setPaused(true);
+        QTRY_COMPARE(second.state(), QAbstractSocket::UnconnectedState);
+        QTRY_COMPARE(retry.state(), QAbstractSocket::UnconnectedState);
     }
     void networkRoundTripAndIsolation() {
         Profile a = profile(), b = profile(), unrelated = profile(); b.key = a.key;

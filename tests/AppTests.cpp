@@ -29,6 +29,7 @@
 #include <QSemaphore>
 #include <QThread>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <memory>
 #include <QUuid>
 
@@ -134,7 +135,7 @@ private slots:
         }
     }
     void unchangedPeersDoNotResetTheListDuringScrolling() {
-        Profile profile; profile.create();
+        Profile profile = Profile::load(); profile.ownerName = "test"; profile.create();
         ClipboardSync window(profile);
         auto *peers = window.findChild<QListWidget *>(); QVERIFY(peers);
         auto *engine = window.findChild<SyncEngine *>(); QVERIFY(engine);
@@ -144,6 +145,11 @@ private slots:
         QCOMPARE(reset.count(), 0);
     }
     void connectionQrRoundTripAndInvalidInput() {
+        QTemporaryDir scratch;
+        QVERIFY(scratch.isValid());
+        const QString previousDirectory = QDir::currentPath();
+        const auto restoreDirectory = qScopeGuard([previousDirectory] { QDir::setCurrent(previousDirectory); });
+        QVERIFY(QDir::setCurrent(scratch.path()));
         Profile profile; profile.create();
         const QString invitation = profile.invitation();
         const QImage qr = QrCode::encodeInvitation(invitation); QVERIFY(!qr.isNull());
@@ -158,6 +164,8 @@ private slots:
         QVERIFY(QrCode::decodeInvitation(blank).isEmpty());
         Profile joined; QVERIFY(joined.join(QrCode::decodeInvitation(qr)));
         QCOMPARE(joined.groupId(), profile.groupId());
+        // Camera/QR decoding must not persist diagnostic image data, including in Debug.
+        QVERIFY(QDir(scratch.path()).entryList(QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
     }
     void invitationShowsScannableProfile() {
         Profile profile; profile.create();

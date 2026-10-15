@@ -24,9 +24,11 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ClipboardActivity extends QtActivity {
     private static final AtomicReference<String> pendingShare = new AtomicReference<>("");
+    private static final AtomicBoolean importing = new AtomicBoolean(false);
     private final ExecutorService importer = Executors.newSingleThreadExecutor();
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -59,8 +61,15 @@ public final class ClipboardActivity extends QtActivity {
     }
     public static String takeShare() { return pendingShare.getAndSet(""); }
     private void handleShare(Intent intent) {
+        if (intent == null) return;
         String action = intent.getAction();
         if (!Intent.ACTION_SEND.equals(action) && !Intent.ACTION_SEND_MULTIPLE.equals(action)) return;
+        // The exported Activity may receive arbitrary Intents. Never build an unbounded work queue.
+        if (!pendingShare.get().isEmpty() || !importing.compareAndSet(false, true)) {
+            android.widget.Toast.makeText(this, text(this, "Previous share is still waiting. Open LocalClipboard and try again.",
+                    "Предыдущая отправка ещё ожидает. Откройте LocalClipboard и попробуйте снова."), android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
         importer.execute(() -> {
             File folder = new File(getFilesDir(), "shared/" + UUID.randomUUID());
             try {
@@ -76,6 +85,7 @@ public final class ClipboardActivity extends QtActivity {
                 if (uris.isEmpty()) {
                     CharSequence text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
                     if (text == null) throw new Exception("Nothing to share.");
+                    if (text.length() > 1024 * 1024) throw new Exception("Shared text is too large.");
                     result.put("text", text.toString());
                 } else {
                     if (uris.size() > 32) throw new Exception("Select at most 32 files.");
@@ -84,6 +94,9 @@ public final class ClipboardActivity extends QtActivity {
                     long total = 0;
                     for (Uri uri : uris) {
                         if (!"content".equals(uri.getScheme())) throw new Exception("Only content-provider files can be shared.");
+                        // Do not act as a deputy granting access to our own private provider.
+                        if (getPackageName().concat(".qtprovider").equals(uri.getAuthority()))
+                            throw new Exception("Use Received files to open this file.");
                         String name = "shared-file";
                         try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
                             if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) name = cursor.getString(0);
@@ -112,7 +125,7 @@ public final class ClipboardActivity extends QtActivity {
             } catch (Exception e) {
                 deleteFolder(folder);
                 try { pendingShare.compareAndSet("", new JSONObject().put("error", e.getMessage()).toString()); } catch (Exception ignored) { }
-            }
+            } finally { importing.set(false); }
         });
     }
     private static void deleteFolder(File folder) {

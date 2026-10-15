@@ -25,7 +25,7 @@ if [[ ${LC_ACTION:-install} == uninstall ]]; then
     xcrun devicectl device uninstall app --device "$IOS_DEVICE_ID" "${IOS_BUNDLE_ID:-org.localclipboard.ios}"
     exit 0
 fi
-: "${QT_IOS_ROOT:?Set QT_IOS_ROOT to your installed Qt iOS kit (for example ~/Qt/6.8.3/ios)}"
+: "${QT_IOS_ROOT:?Set QT_IOS_ROOT to your installed Qt iOS kit (for example ~/Qt/6.11.2/ios)}"
 # The archive contains source only: no user's profile, device IDs or signing key.
 bash "$ROOT/Source/scripts/build" -t ios -c Debug -n -b "$ROOT/build_ios"
 if [[ -n ${IOS_DEVICE_ID:-} && -n ${IOS_TEAM_ID:-} ]]; then

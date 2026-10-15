@@ -56,16 +56,26 @@ For Apple distribution, set `MACOS_APP_SIGN_IDENTITY` and
 local default uses ad-hoc app signing and an unsigned PKG. See
 [dependencies](../dependencies/README.md) for the Android SDK/NDK setup.
 
+## Android release signing
+
+CI builds development APKs. For a release APK, set `LC_ANDROID_KEYSTORE`,
+`LC_ANDROID_KEY_ALIAS`, `LC_ANDROID_STORE_PASSWORD`, `LC_ANDROID_KEY_PASSWORD`
+in a private environment, then run `./scripts/build -t android -c Release`.
+Signing uses `apksigner` with passwords read from environment references, and
+verifies signature and ZIP alignment before packaging. Without those variables,
+`-n` can build an unsigned Release; packaging requires a signed APK.
+Keep the same signing key for updates. See [release verification](../SECURITY.md).
+
 ## iOS / iPadOS (local Xcode installation)
 
 `./scripts/package-ios-installer` assembles the source installer ZIP without an
 iOS SDK. The regular `build -t ios` automatically emits both the app and installer.
 
-Requires full Xcode with the iPhoneOS SDK and a Qt iOS kit, iOS 16+:
+Requires full Xcode with the iPhoneOS SDK and a Qt iOS kit, iOS 17+:
 
 ```sh
-export QT_IOS_ROOT="$HOME/Qt/6.8.3/ios"
-export QT_HOST_PATH="$HOME/Qt/6.8.3/macos"
+export QT_IOS_ROOT="$HOME/Qt/6.11.2/ios"
+export QT_HOST_PATH="$HOME/Qt/6.11.2/macos"
 ./scripts/build -t ios
 ```
 
@@ -146,15 +156,25 @@ PKG для macOS устанавливает приложение в `/Applicatio
 
 Для распространения через инфраструктуру Apple задайте `MACOS_APP_SIGN_IDENTITY` и `MACOS_INSTALLER_SIGN_IDENTITY`; нотариализуйте полученные артефакты отдельно. По умолчанию для локального использования приложение подписывается ad-hoc, а PKG остаётся неподписанным. Настройка Android SDK/NDK описана в [зависимостях](../dependencies/README.md#русская-версия).
 
+### Подпись выпускной сборки Android
+
+CI собирает отладочные APK. Для выпуска задайте в приватном окружении
+`LC_ANDROID_KEYSTORE`, `LC_ANDROID_KEY_ALIAS`, `LC_ANDROID_STORE_PASSWORD` и
+`LC_ANDROID_KEY_PASSWORD`, затем выполните `./scripts/build -t android -c Release`.
+Подпись выполняет apksigner с чтением паролей через окружение; перед упаковкой
+проверяются подпись и выравнивание ZIP. Без этих переменных `-n` может собрать
+неподписанный Release, но для упаковки нужен подписанный APK. Для обновлений
+сохраняйте один ключ. См. [проверки выпуска](../SECURITY.md#русская-версия).
+
 ### iOS / iPadOS: локальная установка через Xcode
 
 Команда `./scripts/package-ios-installer` собирает ZIP установщика с исходниками без iOS SDK. Обычная команда `build -t ios` автоматически создаёт приложение и установщик.
 
-Нужны полный Xcode с iPhoneOS SDK, комплект Qt для iOS и устройство с iOS 16 или новее:
+Нужны полный Xcode с iPhoneOS SDK, комплект Qt для iOS и устройство с iOS 17 или новее:
 
 ```sh
-export QT_IOS_ROOT="$HOME/Qt/6.8.3/ios"
-export QT_HOST_PATH="$HOME/Qt/6.8.3/macos"
+export QT_IOS_ROOT="$HOME/Qt/6.11.2/ios"
+export QT_HOST_PATH="$HOME/Qt/6.11.2/macos"
 ./scripts/build -t ios
 ```
 

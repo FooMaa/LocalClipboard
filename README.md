@@ -34,8 +34,10 @@ connection code; share it only with your own devices. Other QR formats are ignor
 
 Android and iOS forms fill the available screen. Scroll the registration and
 settings pages with a swipe; opening the keyboard keeps the focused input visible.
-Android choice fields use native single-choice dialogs. Its QR scanner uses a
-native camera preview with decoding off the UI thread; images can also be selected.
+Android uses Qt Quick with GPU rendering, inertial scrolling, large touch controls
+and explicit choices instead of combo boxes. File preparation runs on workers; the
+background service stays in a separate process. Its QR scanner uses a native camera
+preview with decoding off the UI thread; images can also be selected.
 On iOS, choice fields open a separate list with large touch targets.
 
 ## Background operation and autostart
@@ -142,14 +144,18 @@ synchronization running; use **Quit LocalClipboard** to stop it.
 
 ## Build: five packages and five installers
 
-CMake 3.21.1+, a C++17 compiler, Qt 6 Core/Network/Widgets/Multimedia/Test and native packaging
-tools are required. Monocypher 4.0.2 is vendored; no crypto runtime download is needed.
+CMake 3.21.1+, a C++17 compiler, Qt 6 Core/Network/Widgets/Multimedia/Concurrent/Test
+and native packaging tools are required. Android also needs Qt Declarative
+(Quick/QuickControls2). CI pins Qt 6.11.2 for macOS, Windows, Android and iOS;
+supported mobile OS versions are Android 9+ and iOS 17+.
+Linux compatibility builds use the distribution Qt package; review its security
+backports before distributing it. Monocypher 4.0.3 is vendored.
 
 ```sh
 ./scripts/build -t macos
 ./scripts/build -t linux
 ./scripts/build -t windows       # Git Bash + MSVC + Qt + NSIS
-./scripts/build -t android       # Android Qt kit, SDK, NDK, Java 17
+./scripts/build -t android       # Android Qt kit, SDK, NDK, Java 21
 ./scripts/build -t ios           # macOS + full Xcode + Qt iOS kit
 ```
 
@@ -206,12 +212,19 @@ with that challenge and both device IDs bound to the ciphertext. Wrong profiles,
 plaintext legacy packets, tampered data and replays from previous connections are
 rejected. Unauthenticated sockets cannot allocate the full transfer buffer.
 
-Profile secrets are stored in a user-private configuration file (Windows relies on
-the user's directory ACL; Android uses app-private storage with backups disabled).
+Android wraps profile secrets with AES-GCM using a non-exportable Android Keystore
+key and migrates older profiles on launch. Clipboard queues and received files stay
+plaintext in app-private storage with backups disabled. Desktop/iOS profile secrets
+remain in a user-private configuration file; Windows relies on directory ACLs.
+Received files are limited to 512 MiB / 16,384 files: existing copies are kept and
+new transfers are refused when full.
 This protects against unrelated LAN users, not a compromised registered device or
 malware running as your OS user. The protocol has not had an independent security
 audit and group keys do not provide forward secrecy. Pause synchronization when
 copying content you do not want on your other registered devices.
+
+See [security checks and release limits](SECURITY.md) for the threat model,
+sanitizer/fuzzer commands and checks requiring real devices and signing.
 
 Android platform constraints are documented in the official
 [clipboard access rules](https://developer.android.com/about/versions/10/privacy/changes#clipboard-data)
@@ -248,7 +261,7 @@ for regeneration after changing the SVG.
 
 Если камеры нет, используйте **«Сохранить QR-код…»** и **«Считать QR из изображения…»** либо введите код вручную. QR содержит тот же секрет профиля, что и код подключения: передавайте его только своим устройствам. QR-коды других форматов игнорируются.
 
-На Android и iOS формы занимают доступный экран. Страницы регистрации и настроек прокручиваются свайпом; при открытии клавиатуры поле ввода остаётся в видимой области. На Android выбор значений выполняется через системные диалоги. QR-сканер использует нативный предпросмотр камеры и распознавание в рабочем потоке; также можно выбрать изображение. На iOS варианты выбираются в отдельном списке с крупными строками.
+На Android и iOS формы занимают доступный экран. Страницы регистрации и настроек прокручиваются свайпом; при открытии клавиатуры поле ввода остаётся в видимой области. На Android используются крупные кнопки выбора вместо комбобоксов. QR-сканер использует нативный предпросмотр камеры и распознавание в рабочем потоке; также можно выбрать изображение. На iOS варианты выбираются в отдельном списке с крупными строками.
 
 ### Фоновая работа и автозапуск
 
@@ -295,13 +308,13 @@ for regeneration after changing the SVG.
 
 ### Сборка: пять пакетов и пять установщиков
 
-Нужны CMake 3.21.1 или новее, компилятор C++17, модули Qt 6 Core/Network/Widgets/Multimedia/Test и инструменты упаковки соответствующей платформы. Monocypher 4.0.2 включён в исходники; отдельно скачивать криптографическую библиотеку для запуска не требуется.
+Нужны CMake 3.21.1 или новее, компилятор C++17, модули Qt 6 Core/Network/Widgets/Multimedia/Test и инструменты упаковки соответствующей платформы. Monocypher 4.0.3 включён в исходники; отдельно скачивать криптографическую библиотеку для запуска не требуется.
 
 ```sh
 ./scripts/build -t macos
 ./scripts/build -t linux
 ./scripts/build -t windows       # Git Bash + MSVC + Qt + NSIS
-./scripts/build -t android       # Комплект Qt для Android, SDK, NDK, Java 17
+./scripts/build -t android       # Комплект Qt для Android, SDK, NDK, Java 21
 ./scripts/build -t ios           # macOS + полный Xcode + комплект Qt для iOS
 ```
 
@@ -333,7 +346,11 @@ ctest --test-dir build_desktop --output-on-failure
 
 Объявления аутентифицируются с помощью BLAKE2b с ключом. Каждой передаче TCP предшествует новый обмен для взаимной аутентификации; содержимое буфера шифруется XChaCha20-Poly1305 с привязкой этого обмена и идентификаторов обоих устройств к шифротексту. Отклоняются чужие профили, незашифрованные пакеты старого протокола, изменённые данные и повторные сообщения предыдущих соединений. Неаутентифицированные соединения не могут выделить полный буфер передачи.
 
-Секреты профиля хранятся в приватном файле конфигурации пользователя. Windows опирается на ACL пользовательского каталога; Android использует приватное хранилище приложения с отключённым резервным копированием. Это защищает от посторонних пользователей локальной сети, но не от взломанного зарегистрированного устройства или вредоносного ПО, работающего от имени вашего пользователя ОС. Протокол не проходил независимый аудит безопасности; групповые ключи не обеспечивают прямую секретность. Приостановите синхронизацию перед копированием содержимого, которое не должно попадать на остальные зарегистрированные устройства.
+На Android секрет профиля шифруется AES-GCM ключом из Android Keystore, который нельзя экспортировать; старый профиль переносится при запуске. Очереди буфера и полученные файлы остаются незашифрованными в приватном хранилище с отключённым резервным копированием. На компьютерах и iOS секрет профиля остаётся в приватном файле конфигурации; Windows опирается на ACL пользовательского каталога. Полученные файлы ограничены 512 МиБ и 16 384 файлами: существующие копии сохраняются, а новые передачи при заполнении отклоняются. Это защищает от посторонних пользователей локальной сети, но не от взломанного зарегистрированного устройства или вредоносного ПО от имени вашего пользователя ОС. Протокол не проходил независимый аудит безопасности; групповые ключи не обеспечивают прямую секретность. Приостановите синхронизацию перед копированием содержимого, которое не должно попадать на остальные устройства.
+
+На Android интерфейс переведён на Qt Quick: отрисовка на GPU, инерционная прокрутка, крупные элементы управления и явный выбор вместо комбобоксов. Подготовка файлов выполняется в рабочих потоках; фоновая служба работает в отдельном процессе. Для сборки Android также нужен Qt Declarative (Quick/QuickControls2). В CI закреплён Qt 6.11.2 для macOS, Windows, Android и iOS; поддерживаются Android 9+ и iOS 17+. Сборка Linux использует Qt дистрибутива: перед распространением нужно проверить исправления безопасности его пакета.
+
+См. [проверки безопасности и ограничения выпуска](SECURITY.md#русская-версия).
 
 Ограничения Android описаны в официальных документах: [правила доступа к буферу обмена](https://developer.android.com/about/versions/10/privacy/changes#clipboard-data) и [службы для подключённых устройств](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device).
 
