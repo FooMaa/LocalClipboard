@@ -2,6 +2,7 @@
 #include <QByteArray>
 #include <QString>
 #include <QStringList>
+#include <QJsonObject>
 
 struct Profile {
     QString deviceId;
@@ -11,6 +12,15 @@ struct Profile {
     bool autostart = true;
     bool paused = false;
     QStringList peerAddresses;
+    QByteArray deviceSecret, authoritySeed, authorityPublic;
+    QJsonObject registry;
+    bool sendingEnabled = true, receivingEnabled = true, historyEnabled = false;
+    qint64 pauseUntil = 0;
+    int historyDays = 7, historyMiB = 16;
+    QStringList excludedApplications;
+    bool managed() const { return authorityPublic.size() == 32 && deviceSecret.size() == 32; }
+    bool isPaused() const;
+    void createManaged();
 
     bool registered() const;
     QString groupId() const;

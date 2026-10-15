@@ -1,7 +1,9 @@
 #include "SecureProtocol.h"
 #include "monocypher.h"
+#include "DeviceAccess.h"
 #include <QDateTime>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QRandomGenerator>
 #include <QtEndian>
 #include <QUuid>
@@ -38,19 +40,21 @@ bool SecureProtocol::verify(const QByteArray &a, const QByteArray &b) {
     return a.size() == 32 && b.size() == 32 && crypto_verify32(ptr(a), ptr(b)) == 0;
 }
 QByteArray SecureProtocol::announcement(const Profile &p, quint16 port) {
-    QJsonObject obj{{"version", 2}, {"group", p.groupId()}, {"id", p.deviceId},
+    QJsonObject obj{{"version", p.managed() ? 3 : 2}, {"group", p.groupId()}, {"id", p.deviceId},
                     {"name", p.deviceName}, {"port", port}, {"time", double(QDateTime::currentSecsSinceEpoch())}};
+    obj.insert("receipts", true);
+    if (p.managed()) { obj.insert("publicKey", QString::fromLatin1(DeviceAccess::publicKey(p).toHex())); obj.insert("registry", p.registry); }
     const QByteArray body = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     obj.insert("mac", QString::fromLatin1(mac(p, body, "discovery").toHex()));
     return QJsonDocument(obj).toJson(QJsonDocument::Compact);
 }
 bool SecureProtocol::readAnnouncement(const Profile &p, const QByteArray &bytes, QJsonObject *object) {
-    if (!object || bytes.size() > 2048 || !p.registered()) return false;
+    if (!object || bytes.size() > 32768 || !p.registered()) return false;
     QJsonObject obj = QJsonDocument::fromJson(bytes).object();
     const auto encodedMac = obj.take("mac").toString().toLatin1();
     const QByteArray tag = QByteArray::fromHex(encodedMac);
-    if (obj.size() != 6 || encodedMac.size() != 64 || tag.toHex() != encodedMac
-        || obj.value("version").toInt() != 2 || obj.value("group").toString() != p.groupId()
+    if ((obj.size() != (p.managed() ? 9 : 7) && (p.managed() || obj.size() != 6)) || encodedMac.size() != 64 || tag.toHex() != encodedMac
+        || obj.value("version").toInt() != (p.managed() ? 3 : 2) || obj.value("group").toString() != p.groupId()
         || QUuid(obj.value("id").toString()).isNull()
         || QUuid(obj.value("id").toString()).toString(QUuid::WithoutBraces) != obj.value("id").toString()
         || obj.value("name").toString().trimmed().isEmpty()
@@ -60,6 +64,18 @@ bool SecureProtocol::readAnnouncement(const Profile &p, const QByteArray &bytes,
         || !std::isfinite(obj.value("time").toDouble())
         || qAbs(double(QDateTime::currentSecsSinceEpoch()) - obj.value("time").toDouble()) > 60
         || !verify(tag, mac(p, QJsonDocument(obj).toJson(QJsonDocument::Compact), "discovery"))) return false;
+    if (p.managed()) {
+        const auto hex = obj.value("publicKey").toString().toLatin1();
+        if (hex.size() != 64 || QByteArray::fromHex(hex).toHex() != hex) return false;
+        // A holder of the discovery secret must not replace a pinned identity's
+        // key in the device list and thereby obstruct its revocation.
+        for (const auto &entry : p.registry.value("devices").toArray()) {
+            const auto device = entry.toObject();
+            if (device.value("id") == obj.value("id") && device.value("key").toString().toLatin1() != hex) return false;
+        }
+        const auto r = obj.value("registry").toObject();
+        if (!r.isEmpty() && !DeviceAccess::validRegistry(p, r)) return false;
+    }
     *object = obj;
     return true;
 }

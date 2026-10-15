@@ -1,6 +1,7 @@
 #include "SecretStore.h"
 #include <QRegularExpression>
 #include <QMutex>
+#include <QHash>
 #include <QMutexLocker>
 #ifdef Q_OS_ANDROID
 #include <QCoreApplication>
@@ -27,16 +28,18 @@ QByteArray SecretStore::decode(const QString &stored) {
         // Profile polling by the service must not invoke Keystore on every timer tick.
         static QMutex cacheMutex;
         const QMutexLocker locker(&cacheMutex);
-        static QString cachedCipher;
-        static QByteArray cachedKey;
-        if (stored == cachedCipher) return cachedKey;
+        static QHash<QString, QByteArray> cache;
+        const auto found = cache.constFind(stored);
+        if (found != cache.cend()) return found.value();
         const auto value = QJniObject::fromString(stored);
         const auto context = QNativeInterface::QAndroidApplication::context();
         text = QJniObject::callStaticObjectMethod("org/localclipboard/ProfileSecrets", "unwrap",
             "(Landroid/content/Context;Ljava/lang/String;)Ljava/lang/String;", context.object(), value.object<jstring>()).toString();
         if (!QRegularExpression("^[0-9a-f]{64}$").match(text).hasMatch()) return {};
-        cachedCipher = stored; cachedKey = QByteArray::fromHex(text.toLatin1());
-        return cachedKey;
+        const auto key = QByteArray::fromHex(text.toLatin1());
+        if (cache.size() >= 8) cache.clear();
+        cache.insert(stored, key);
+        return key;
     }
 #endif
     // Read legacy keys so an installed device can migrate without losing its profile.

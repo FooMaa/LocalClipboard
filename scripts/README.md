@@ -54,7 +54,7 @@ PowerShell scripts; it needs adb and USB debugging. The APK itself installs dire
 on a phone without adb.
 
 For Apple distribution, set `MACOS_APP_SIGN_IDENTITY` and
-`MACOS_INSTALLER_SIGN_IDENTITY`; notarize the resulting artifacts separately. The
+`MACOS_INSTALLER_SIGN_IDENTITY` and `MACOS_NOTARY_PROFILE` to sign, notarize and staple artifacts during packaging. The
 local default uses ad-hoc app signing and unsigned internal PKG payloads. See
 [dependencies](../dependencies/README.md) for the Android SDK/NDK setup.
 
@@ -162,7 +162,7 @@ DMG для macOS содержит один установщик с радиок�
 
 Упаковка Android принимает ровно один устанавливаемый подписанный APK из чистой сборки с одной конфигурацией и ABI. Qt/Gradle подписывают отладочные APK для тестирования. Выпускную сборку перед упаковкой нужно подписать с помощью описанных ниже переменных подписи выпуска. Сохраняйте постоянный ключ подписи для последующих обновлений. ZIP установщика содержит APK и скрипты для командной строки и PowerShell; ему нужны adb и отладка USB. Сам APK можно установить на телефоне напрямую, без adb.
 
-Для распространения через инфраструктуру Apple задайте `MACOS_APP_SIGN_IDENTITY` и `MACOS_INSTALLER_SIGN_IDENTITY`; нотариализуйте полученные артефакты отдельно. По умолчанию для локального использования приложение подписывается ad-hoc, а внутренние пакеты PKG остаются неподписанными. Настройка Android SDK/NDK описана в [зависимостях](../dependencies/README.md#русская-версия).
+Для распространения через инфраструктуру Apple задайте `MACOS_APP_SIGN_IDENTITY` и `MACOS_INSTALLER_SIGN_IDENTITY` и `MACOS_NOTARY_PROFILE` для подписи, нотариализации и прикрепления подтверждений при упаковке. По умолчанию для локального использования приложение подписывается ad-hoc, а внутренние пакеты PKG остаются неподписанными. Настройка Android SDK/NDK описана в [зависимостях](../dependencies/README.md#русская-версия).
 
 ### Подпись выпускной сборки Android
 

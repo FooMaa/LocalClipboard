@@ -6,6 +6,10 @@
 #include "QrCode.h"
 #include "SyncEngine.h"
 #include "FileStorage.h"
+#include "SecureProtocol.h"
+#include "DeviceAccess.h"
+#include "LocalHistory.h"
+#include <QUdpSocket>
 #include <QClipboard>
 #include <QApplication>
 #include <QDir>
@@ -52,7 +56,7 @@ private slots:
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first()); QVERIFY(window);
         window->setProperty("platformName", platform); window->setMinimumSize(QSize(0, 0));
         window->resize(width, 740); window->show();
-        for (const auto &page : {"home", "settings", "register", "pair", "files"}) {
+        for (const auto &page : {"home", "settings", "register", "pair", "files", "devices", "transfers", "history", "diagnostics"}) {
             window->setProperty("page", page); QTest::qWait(40);
             const auto items = window->findChildren<QQuickItem *>();
             for (auto *item : items) {
@@ -96,7 +100,7 @@ private slots:
                 window->resize(width, 740); window->show();
                 QVERIFY(QTest::qWaitForWindowExposed(window));
                 // Pairing images contain the profile secret and must never be exported.
-                for (const auto &page : {"home", "settings", "register", "files"}) {
+                for (const auto &page : {"home", "settings", "register", "files", "devices", "transfers", "history", "diagnostics"}) {
                     QSignalSpy rendered(window, &QQuickWindow::frameSwapped);
                     window->setProperty("page", page); window->update();
                     QTRY_VERIFY_WITH_TIMEOUT(!rendered.isEmpty(), 2000);
@@ -253,6 +257,53 @@ private slots:
         controller.setLanguage(controller.language() == "ru" ? "en" : "ru");
         QTest::qWait(30);
         QVERIFY(scroll->property("contentY").toReal() >= y - 1);
+    }
+    void deviceApprovalRevocationAndRenameReachTheController() {
+        auto owner = profile(); owner.createManaged();
+        auto phone = profile(); QVERIFY(phone.join(owner.invitation()));
+        AppController controller(owner);
+        auto *engine = controller.findChild<SyncEngine *>(); QVERIFY(engine);
+        QUdpSocket discovery;
+        discovery.writeDatagram(SecureProtocol::announcement(phone, 45872), QHostAddress::LocalHost, engine->discoveryPort());
+        QTRY_COMPARE(controller.devices().size(), 1);
+        QVERIFY(controller.administrator()); QCOMPARE(controller.accessState(), QStringLiteral("approved"));
+        QVERIFY(!controller.devices().first().toMap().value("approved").toBool());
+        QVERIFY(controller.authorizeDevice(phone.deviceId, false));
+        QVERIFY(controller.devices().first().toMap().value("approved").toBool());
+        QVERIFY(controller.renameDevice("Work laptop"));
+        QCOMPARE(controller.deviceName(), QStringLiteral("Work laptop"));
+        QCOMPARE(controller.findChild<SyncEngine *>(), engine); // Settings preserve transfer state.
+        QVERIFY(controller.authorizeDevice(phone.deviceId, true));
+        QVERIFY(controller.devices().first().toMap().value("revoked").toBool());
+        QVERIFY(!controller.devices().first().toMap().value("approved").toBool());
+        QVERIFY(!controller.authorizeDevice(phone.deviceId, false));
+        const auto oldId = phone.deviceId;
+        QVERIFY(phone.join(controller.invitation())); QVERIFY(phone.deviceId != oldId);
+    }
+    void localHistoryCanBeCopiedWhileSynchronizationIsPaused() {
+        auto p = profile(); p.historyEnabled = true; p.paused = true;
+        QVERIFY(p.save());
+        const QJsonObject payload{{"kind", "text"}, {"text", "local history copy"}, {"html", ""}};
+        QVERIFY(LocalHistory::record(p, payload));
+        const auto entries = LocalHistory::entries(p); QVERIFY(!entries.isEmpty());
+        AppController controller(p);
+        controller.copyHistory(entries.first().toMap().value("id").toString());
+        QTRY_VERIFY(!controller.busy());
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("local history copy"));
+        QVERIFY(controller.paused()); LocalHistory::clear();
+    }
+    void diagnosticsExcludeSecretsAndHistoryStaysOptIn() {
+        auto p = profile(); p.createManaged();
+        AppController controller(p);
+        controller.checkNetwork();
+        const auto report = controller.diagnostics();
+        QVERIFY(!report.contains(p.ownerName)); QVERIFY(!report.contains(p.deviceName));
+        QVERIFY(!report.contains(p.invitation())); QVERIFY(!report.contains(QString::fromLatin1(p.key.toHex())));
+        QVERIFY(!report.contains(QString::fromLatin1(p.deviceSecret.toHex())));
+        QVERIFY(!controller.historyEnabled()); QVERIFY(controller.history().isEmpty());
+        controller.pauseFor15Minutes(); QVERIFY(controller.paused());
+        controller.setPaused(false); QVERIFY(!controller.paused());
+        const auto engine = controller.findChild<SyncEngine *>(); QVERIFY(engine); QVERIFY(!engine->profile().isPaused());
     }
     void invalidRegistrationPreservesExistingProfile() {
         AppController controller(profile());

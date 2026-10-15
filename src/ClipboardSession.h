@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QUrl>
 #include <functional>
+#include <QVariantList>
 
 class SyncEngine;
 
@@ -29,12 +30,22 @@ public:
     void sendFiles(const QList<QUrl> &urls);
     void importFiles(const QList<QUrl> &urls);
     void report(const QString &message);
+    QVariantList devices() const;
+    QVariantList transfers() const;
+    bool authorizeDevice(const QString &id, bool revoke);
+    bool retryTransfer(const QString &id);
+    void cancelTransfer(const QString &id);
+    void copyHistory(const QString &id);
+    void sendReceivedFile(const QUrl &url) { sendFiles({url}); }
+    void announce();
 signals:
     void stateChanged();
     void profileChanged();
     void messageChanged();
     void busyChanged();
     void shareChanged();
+    void transfersChanged();
+    void historyChanged();
 private:
     void startEngine();
     void refresh();
@@ -42,6 +53,10 @@ private:
     void sendPayload(const QJsonObject &payload);
     void apply(const QJsonObject &payload);
     void setBusy(bool busy);
+    void completeReceived(const QString &state, const QString &error = {});
+    void remember(const QJsonObject &payload);
+    QString m_incomingId, m_incomingSender, m_serviceMessage;
+    QVariantList m_serviceDevices, m_serviceTransfers;
     Profile m_profile;
     SyncEngine *m_engine = nullptr;
     QStringList m_peers;

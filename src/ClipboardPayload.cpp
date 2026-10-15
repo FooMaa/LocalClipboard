@@ -98,7 +98,7 @@ QJsonObject ClipboardPayload::capture(const QMimeData *mime, QString *error) {
     }
     if (mime->hasText() || mime->hasHtml()) {
         const QString text = mime->text(), html = mime->html();
-        if (text.trimmed().startsWith("LC2.") || text.trimmed().startsWith("LCQR1.")) return {};
+        if (text.trimmed().startsWith("LC3.") || text.trimmed().startsWith("LC2.") || text.trimmed().startsWith("LCQR1.")) return {};
         if (text.isEmpty() && html.isEmpty()) return {};
         if (text.toUtf8().size() + html.toUtf8().size() > MaxContentBytes) { fail(error, "Text exceeds 32 MiB."); return {}; }
         return QJsonObject{{"kind", "text"}, {"text", text}, {"html", html}};
@@ -111,7 +111,7 @@ bool ClipboardPayload::validate(const QJsonObject &p, QString *error) {
         if (!onlyKeys(p, {"kind", "text", "html"}) || (p.contains("text") && !p.value("text").isString())
             || (p.contains("html") && !p.value("html").isString())) return fail(error, "Invalid text payload.");
         const QString text = p.value("text").toString(), html = p.value("html").toString();
-        if ((text.isEmpty() && html.isEmpty()) || (text.trimmed().startsWith("LC2.") || text.trimmed().startsWith("LCQR1."))
+        if ((text.isEmpty() && html.isEmpty()) || (text.trimmed().startsWith("LC3.") || text.trimmed().startsWith("LC2.") || text.trimmed().startsWith("LCQR1."))
             || text.toUtf8().size() + html.toUtf8().size() > MaxContentBytes) return fail(error, "Invalid text payload.");
     } else if (kind == "image") {
         if (!onlyKeys(p, {"kind", "png"}) || !p.value("png").isString()) return fail(error, "Invalid or oversized PNG.");

@@ -1,15 +1,17 @@
 # Security and release verification
 
 This is a source review and reproducible regression setup, not an independent
-penetration test or a certification. Review date: 2026-10-15, application 2.2.0.
+penetration test or a certification. Review date: 2026-10-15, application 2.3.0.
 
 ## Trust boundaries
 
-The random 256-bit `LC2` profile secret authorizes every member of that profile.
-Separate profiles isolate people sharing a LAN. Anyone holding a profile code or
-QR can join and impersonate a member: device names and UUIDs are not independently
-certified identities. Lost devices require a new profile and reconnection of the
-remaining devices. There is no individual revocation or forward secrecy.
+New `LC3` profiles use per-device X25519 private keys and an owner-signed EdDSA
+registry. The owner must approve a joining device after comparing fingerprints.
+The discovery secret alone cannot decrypt pairwise transfers or sign registry
+updates. Signed revisions resist rollback; revocations propagate on reconnection.
+Offline peers with an old registry cannot learn a new revocation until they contact
+an updated peer. Static pairwise keys do not provide forward secrecy. Legacy `LC2`
+profiles retain shared-key trust until explicitly upgraded. See [feature limits](FEATURES.md).
 
 Discovery is authenticated and accepts timestamps within 60 seconds. A captured
 announcement can be replayed within that window; the fresh mutually authenticated
@@ -22,7 +24,7 @@ ZXing-C++ 2.3.0. These version labels are an inventory, not an assurance that no
 advisories exist. Review upstream releases/advisories before publishing.
 
 Upstream review on 2026-10-15: [Monocypher 4.0.3](https://github.com/LoupVaillant/Monocypher/releases/tag/4.0.3)
-fixes a signature timing leak (this app uses AEAD/MAC, not EdDSA). Vendored files
+fixes a signature timing leak (this app uses AEAD/MAC and EdDSA for the device registry). Vendored files
 were updated to that release; their revision and hashes are recorded alongside
 the source. [ZXing's advisory page](https://github.com/zxing-cpp/zxing-cpp/security/advisories)
 had no published advisories; this does not prove the older 2.3 branch is free of bugs.
@@ -161,25 +163,30 @@ requires your Xcode signing team. Windows/Linux/iOS builds must pass their nativ
 CI and physical-device checks before release. CI actions use version tags; a
 public release process should review/pin the action revisions it trusts.
 
-The protocol currently has no delivery acknowledgement, resumable streaming or
-durable per-peer history: “queued/sending” does not prove delivery. A process or
-network failure can lose a transfer. Android retains the latest pending outgoing
-item for up to ten minutes; received/apply queues also retain only the latest item.
+The protocol now has authenticated received/copied receipts and bounded in-memory
+retry/deduplication state. Restarting a process can lose status and retry data.
+Resumable streaming and a durable per-peer outgoing log are not implemented.
+Android retains only the latest pending outgoing item for ten minutes and its
+latest received item. Local optional history is encrypted and bounded; plaintext
+received files and bridge queues remain app-private. Diagnostics use an explicit
+allowlist and exclude names, addresses, content and keys.
 
 ---
 
 ## Русская версия
 
-Проверка исходников и регрессионные тесты от 15.10.2026 для версии 2.2.0 не заменяют
+Проверка исходников и регрессионные тесты от 15.10.2026 для версии 2.3.0 не заменяют
 независимый пентест и не являются сертификацией безопасности.
 
-Секрет `LC2` разрешает доступ ко всему личному профилю. У разных людей должны быть
-разные профили. Владелец кода или QR может подключиться и представиться любым
-участником: имена и UUID не удостоверены отдельными ключами устройств. При потере
-устройства создайте новый профиль. Отдельного отзыва доступа и прямой секретности
-нет. Метаданные соединений, имена и идентификатор группы видны в локальной сети.
-Не публикуйте порты приложения в Интернете. Объявление обнаружения можно повторить
-в пределах окна 60 секунд; новый обмен аутентификации TCP защищает саму передачу.
+Новые профили `LC3` используют личные ключи X25519 и подписанный владельцем реестр
+EdDSA. До одобрения сравниваются отпечатки. Один секрет обнаружения не позволяет
+расшифровать обмен между устройствами или подписать изменение реестра. Подписанные
+версии защищают от отката; отзыв распространяется при подключении. Узлы со старым
+реестром, изолированные от обновлений, не узнают об отзыве до связи с обновлённым
+узлом. Статические ключи не обеспечивают прямую секретность. Старые профили `LC2`
+сохраняют общий ключ до явного перехода. См. [ограничения возможностей](FEATURES.md#русская-версия).
+Метаданные обнаружения видны в сети; не публикуйте порты приложения в Интернете.
+Окно времени объявления — 60 секунд, новый обмен TCP защищает каждую передачу.
 
 Добавлены строгие схемы сообщений, проверка имён файлов и Unicode-дубликатов,
 лимит восьми соединений, срок аутентификации пять секунд и общий бюджет резерва
@@ -265,7 +272,10 @@ Android 17 новее документированной матрицы Qt 6.11 
 остальные платформы также должны пройти собственные сборки и проверки. Перед
 публичным выпуском проверьте и закрепите доверенные ревизии GitHub Actions.
 
-Протокол пока не подтверждает доставку и не возобновляет передачи. Статус очереди
-не доказывает получение; сбой процесса или сети может потерять содержимое. Android
-ожидает отправки последнего элемента до десяти минут; входящая очередь также
-хранит только последний элемент.
+Протокол подтверждает получение и копирование аутентифицированными ответами.
+Повторы и подавление дубликатов используют ограниченную память; перезапуск может
+потерять состояния. Потоковая передача с возобновлением и постоянный исходящий журнал
+не реализованы. Android хранит последний исходящий элемент до десяти минут и только
+последний входящий. Необязательная история шифруется и ограничивается; полученные
+файлы и очереди остаются в приватном хранилище. Диагностика формируется по разрешённому
+списку полей без имён, адресов, содержимого и ключей.

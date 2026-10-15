@@ -30,6 +30,8 @@ ApplicationWindow {
     function navigate(destination) {
         page = destination
         if (destination === "files") controller.refreshFiles()
+        if (destination === "history") controller.refreshHistory()
+        if (destination === "diagnostics") controller.checkNetwork()
     }
     function back() {
         if (page === "register" && !controller.registered) return false
@@ -151,7 +153,7 @@ ApplicationWindow {
             id: pages
             Layout.fillWidth: true
             Layout.fillHeight: true
-            currentIndex: ["home", "settings", "register", "pair", "files"].indexOf(window.page)
+            currentIndex: ["home", "settings", "register", "pair", "files", "devices", "transfers", "history", "diagnostics"].indexOf(window.page)
             ScrollPage {
                 objectName: "homeScroll"
                 BodyText { width: parent.width; text: qsTr("One clipboard,\nall your devices."); font.pixelSize: 32; font.weight: Font.DemiBold; lineHeight: 1.12 }
@@ -163,11 +165,15 @@ ApplicationWindow {
                         BodyText { width: parent.width - 19; text: controller.paused ? qsTr("Synchronization paused") : controller.receiving ? qsTr("Ready to receive") : qsTr("Waiting for connection"); color: controller.paused ? Theme.muted : Theme.positive; font.weight: Font.DemiBold }
                     }
                     BodyText { width: parent.width; text: controller.ownerName + " · " + controller.deviceName; color: Theme.muted; font.pixelSize: 14 }
+                    BodyText { width: parent.width; visible: controller.managedAccess && controller.accessState !== "approved"; text: controller.accessState === "revoked" ? qsTr("This device's access was revoked. Register again and ask the owner to approve the new fingerprint.") : qsTr("Waiting for approval on the profile owner's device. Open Devices and access on both devices and compare fingerprints."); color: Theme.accent; font.pixelSize: 14 }
                     ActionButton { width: parent.width; visible: controller.pendingClipboard; primary: true; text: qsTr("Copy received clipboard"); enabled: !controller.paused; onClicked: controller.copyReceivedClipboard() }
                     BodyText { width: parent.width; visible: controller.pendingClipboard; text: qsTr("New content is waiting. It will be copied only when you choose Copy."); color: Theme.accent; font.pixelSize: 14 }
-                    ActionButton { width: parent.width; text: controller.busy ? qsTr("Preparing files…") : qsTr("Send clipboard"); primary: true; enabled: !controller.busy && !controller.paused; onClicked: controller.sendClipboard() }
-                    ActionButton { width: parent.width; text: qsTr("Send files / photos…"); enabled: !controller.busy && !controller.paused; onClicked: controller.pickFiles() }
+                    ActionButton { width: parent.width; text: controller.busy ? qsTr("Preparing files…") : qsTr("Send clipboard"); primary: true; enabled: !controller.busy && !controller.paused && controller.sendingEnabled && controller.accessState === "approved"; onClicked: controller.sendClipboard() }
+                    ActionButton { width: parent.width; text: qsTr("Send files / photos…"); enabled: !controller.busy && !controller.paused && controller.sendingEnabled && controller.accessState === "approved"; onClicked: controller.pickFiles() }
                 }
+                ActionButton { width: parent.width; text: qsTr("Transfers"); onClicked: window.navigate("transfers") }
+                ActionButton { width: parent.width; text: qsTr("Devices and access"); onClicked: window.navigate("devices") }
+                ActionButton { width: parent.width; text: qsTr("Local history"); onClicked: window.navigate("history") }
                 Row {
                     width: parent.width
                     BodyText { width: parent.width - 44; text: qsTr("Your devices"); font.pixelSize: 21; font.weight: Font.DemiBold }
@@ -210,6 +216,9 @@ ApplicationWindow {
                         checked: controller.paused
                         onToggled: controller.setPaused(checked)
                     }
+                    ActionButton { width: parent.width; text: qsTr("Pause for 15 minutes"); onClicked: controller.pauseFor15Minutes() }
+                    SettingSwitch { width: parent.width; text: qsTr("Send clipboard changes"); checked: controller.sendingEnabled; onToggled: controller.setSendingEnabled(checked) }
+                    SettingSwitch { width: parent.width; text: qsTr("Receive clipboard changes"); checked: controller.receivingEnabled; onToggled: controller.setReceivingEnabled(checked) }
                     SettingSwitch {
                         objectName: "autostartSwitch"
                         width: parent.width
@@ -240,11 +249,22 @@ ApplicationWindow {
                 }
                 Card {
                     width: parent.width
+                    visible: controller.sourceExclusionsSupported
+                    BodyText { width: parent.width; text: qsTr("Exclude source applications"); font.weight: Font.DemiBold }
+                    BodyText { width: parent.width; text: qsTr("Automatic sending is skipped while a listed app is active. Enter a macOS bundle identifier or a Windows executable name. Manual sending remains available."); color: Theme.muted; font.pixelSize: 14 }
+                    TextArea { id: exclusions; width: parent.width; text: controller.excludedApplications; placeholderText: "com.apple.keychainaccess"; color: Theme.text; wrapMode: TextEdit.Wrap; selectByMouse: !window.phone; background: Rectangle { color: Theme.background; radius: 12 } }
+                    ActionButton { width: parent.width; text: qsTr("Save"); onClicked: controller.setExcludedApplications(exclusions.text) }
+                }
+                ActionButton { width: parent.width; text: qsTr("Network and diagnostics"); onClicked: window.navigate("diagnostics") }
+                ActionButton { width: parent.width; text: qsTr("Devices and access"); onClicked: window.navigate("devices") }
+                ActionButton { width: parent.width; text: qsTr("Local history"); onClicked: window.navigate("history") }
+                Card {
+                    width: parent.width
                     visible: !window.phone
                     ActionButton { width: parent.width; text: qsTr("Uninstall…"); subtle: true; onClicked: controller.uninstall() }
                     ActionButton { width: parent.width; text: qsTr("Quit LocalClipboard"); onClicked: controller.quit() }
                 }
-                BodyText { width: parent.width; text: qsTr("Your connection code gives access to this profile. Each person should create their own profile."); color: Theme.muted; font.pixelSize: 14 }
+                BodyText { width: parent.width; text: controller.managedAccess ? qsTr("New devices need the profile owner’s approval. Each person should create their own profile.") : qsTr("Your connection code gives access to this profile. Each person should create their own profile."); color: Theme.muted; font.pixelSize: 14 }
             }
             ScrollPage {
                 objectName: "registrationScroll"
@@ -272,7 +292,7 @@ ApplicationWindow {
                     Column {
                         width: parent.width; spacing: 14; visible: modes.join
                         BodyText { width: parent.width; text: qsTr("Connection code"); color: Theme.muted; font.pixelSize: 14 }
-                        Editor { id: code; objectName: "codeInput"; width: parent.width; placeholderText: "LC2.…"; maximumLength: 1024; echoMode: TextInput.Password; inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhPreferLatin }
+                        Editor { id: code; objectName: "codeInput"; width: parent.width; placeholderText: "LC3.… / LC2.…"; maximumLength: 1024; echoMode: TextInput.Password; inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhPreferLatin }
                         BodyText { width: parent.width; text: qsTr("Addresses from QR: %1").arg(controller.parseConnection(code.text).addresses || "—"); color: Theme.muted; font.pixelSize: 14 }
                         ActionButton { width: parent.width; text: qsTr("Scan QR code"); onClicked: { Qt.inputMethod.hide(); const value = controller.scanQr(); if (value.length) code.text = value } }
                     }
@@ -303,6 +323,7 @@ ApplicationWindow {
                         }
                     }
                     BodyText { width: parent.width; text: qsTr("Keep this QR code private. Anyone with it can join your profile."); color: Theme.accent; font.pixelSize: 14 }
+                    BodyText { width: parent.width; visible: controller.managedAccess; text: qsTr("The profile owner must approve the new device under Devices and access after scanning."); color: Theme.muted; font.pixelSize: 14 }
                     ActionButton { width: parent.width; text: qsTr("Copy connection code"); onClicked: controller.copyInvitation() }
                     ActionButton { width: parent.width; text: qsTr("Save QR image…"); subtle: true; onClicked: controller.saveQr() }
                 }
@@ -328,7 +349,10 @@ ApplicationWindow {
                         required property int index
                         width: Math.min(ListView.view.width - 40, 720)
                         anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
+                        Image { width: 120; height: 90; visible: modelData.thumbnail.length > 0; source: modelData.thumbnail; sourceSize.width: 240; sourceSize.height: 180; fillMode: Image.PreserveAspectFit; asynchronous: true; cache: false }
                         BodyText { width: parent.width; text: modelData.name; font.weight: Font.DemiBold }
+                        BodyText { width: parent.width; text: modelData.size; color: Theme.muted; font.pixelSize: 13 }
+                        ActionButton { width: parent.width; text: qsTr("Send again"); enabled: !controller.busy && !controller.paused && controller.sendingEnabled; onClicked: controller.resendFile(index) }
                         RowLayout {
                             width: parent.width
                             spacing: 10
@@ -339,6 +363,22 @@ ApplicationWindow {
                     BodyText { anchors.centerIn: parent; width: parent.width - 48; horizontalAlignment: Text.AlignHCenter; visible: !controller.loadingFiles && controller.receivedFiles.length === 0; text: qsTr("Files and photos you receive will appear here."); color: Theme.muted }
                 }
             }
+            DevicesPage { controller: window.controller; onUpgradeRequested: upgradeDialog.open() }
+            TransfersPage { controller: window.controller }
+            HistoryPage { controller: window.controller }
+            DiagnosticsPage { controller: window.controller }
+        }
+    }
+    Dialog {
+        id: upgradeDialog
+        anchors.centerIn: parent; width: Math.min(window.width - 32, 440); modal: true; padding: 24
+        background: Rectangle { radius: 24; color: Theme.surface; border.color: Theme.line }
+        contentItem: Column {
+            spacing: 16
+            BodyText { width: parent.width; text: qsTr("Upgrade device access?"); font.weight: Font.DemiBold }
+            BodyText { width: parent.width; text: qsTr("A new connection code will replace the shared key. Reconnect and approve every other device. This device becomes the profile owner. Local history is cleared."); color: Theme.muted }
+            ActionButton { width: parent.width; primary: true; text: qsTr("Upgrade and reconnect"); onClicked: { if (controller.upgradeAccess()) { upgradeDialog.close(); window.showPairing() } } }
+            ActionButton { width: parent.width; text: qsTr("Cancel"); onClicked: upgradeDialog.close() }
         }
     }
 }

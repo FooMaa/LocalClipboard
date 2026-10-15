@@ -6,6 +6,10 @@
 #include "FileStorage.h"
 #include "SecretStore.h"
 #include "ConnectionInfo.h"
+#include "DeviceAccess.h"
+#include "LocalHistory.h"
+#include <QDateTime>
+#include <QStandardPaths>
 #include <QBuffer>
 #include <QFile>
 #include <QImage>
@@ -35,6 +39,125 @@ class CoreTests : public QObject {
         udp.writeDatagram(SecureProtocol::announcement(sender, port), QHostAddress::LocalHost, receiver.discoveryPort());
     }
 private slots:
+    void initTestCase() {
+        QStandardPaths::setTestModeEnabled(true);
+        QCoreApplication::setApplicationName("LocalClipboardCoreTests-" + QUuid::createUuid().toString(QUuid::WithoutBraces));
+    }
+    void cleanupTestCase() { QDir(Profile::dataDirectory()).removeRecursively(); }
+    void managedDevicesHavePairwiseKeysAndSignedRevocation() {
+        Profile owner = profile(); owner.createManaged();
+        Profile phone = profile(); QVERIFY(phone.join(owner.invitation()));
+        QVERIFY(phone.managed()); QVERIFY(!DeviceAccess::isAdministrator(phone));
+        QVERIFY(!DeviceAccess::channel(owner, phone.deviceId).registered());
+        QVERIFY(DeviceAccess::authorize(&owner, phone.deviceId, DeviceAccess::publicKey(phone), false));
+        QVERIFY(DeviceAccess::updateRegistry(&phone, owner.registry));
+        const auto originalRegistry = owner.registry;
+        Profile impostor = phone; impostor.deviceSecret = SecureProtocol::randomBytes(32);
+        QJsonObject announcement;
+        QVERIFY(!SecureProtocol::readAnnouncement(owner, SecureProtocol::announcement(impostor, 45872), &announcement));
+        QVERIFY(SecureProtocol::readAnnouncement(owner, SecureProtocol::announcement(phone, 45872), &announcement));
+        const auto channel = DeviceAccess::channel(owner, phone.deviceId);
+        QCOMPARE(channel.key, DeviceAccess::channel(phone, owner.deviceId).key);
+        QVERIFY(channel.key != owner.key);
+        const auto encrypted = SecureProtocol::seal(channel, "private payload", "test pair");
+        QByteArray plain;
+        QVERIFY(!SecureProtocol::open(phone, encrypted, "test pair", &plain));
+        QVERIFY(SecureProtocol::open(DeviceAccess::channel(phone, owner.deviceId), encrypted, "test pair", &plain));
+        Profile stranger = profile(); QVERIFY(stranger.join(owner.invitation()));
+        QVERIFY(!DeviceAccess::authorize(&stranger, stranger.deviceId, DeviceAccess::publicKey(stranger), false));
+        QVERIFY(!DeviceAccess::channel(stranger, owner.deviceId).registered());
+        QVERIFY(DeviceAccess::authorize(&owner, phone.deviceId, DeviceAccess::publicKey(phone), true));
+        QVERIFY(DeviceAccess::updateRegistry(&phone, owner.registry));
+        QVERIFY(!DeviceAccess::channel(phone, owner.deviceId).registered());
+        QVERIFY(!DeviceAccess::channel(owner, phone.deviceId).registered());
+        QVERIFY(!DeviceAccess::updateRegistry(&phone, originalRegistry));
+        QVERIFY(!DeviceAccess::authorize(&owner, phone.deviceId, DeviceAccess::publicKey(phone), false));
+        auto tampered = owner.registry; tampered.insert("revision", 999);
+        QVERIFY(!DeviceAccess::validRegistry(phone, tampered));
+        QTemporaryDir directory; QVERIFY(owner.save(nullptr, directory.path()));
+        const auto loaded = Profile::load(directory.path());
+        QCOMPARE(loaded.deviceSecret, owner.deviceSecret); QCOMPARE(loaded.authoritySeed, owner.authoritySeed);
+        QCOMPARE(loaded.registry, owner.registry); QVERIFY(DeviceAccess::isAdministrator(loaded));
+        QFile stored(QDir(directory.path()).filePath("profile.json")); QVERIFY(stored.open(QIODevice::ReadOnly));
+        auto obj = QJsonDocument::fromJson(stored.readAll()).object(); stored.close();
+        QCOMPARE(obj.value("version").toInt(), 3);
+        obj.remove("deviceSecret"); QVERIFY(stored.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        stored.write(QJsonDocument(obj).toJson()); stored.close();
+        QVERIFY(!Profile::load(directory.path()).registered());
+        ConnectionInfo parsed;
+        QVERIFY(ConnectionInfo::parse(ConnectionInfo{owner.invitation(), {"192.168.1.5"}}.encoded(), &parsed));
+        QCOMPARE(parsed.code, owner.invitation());
+        QMimeData mime; mime.setText(owner.invitation()); QString error;
+        QVERIFY(ClipboardPayload::capture(&mime, &error).isEmpty());
+    }
+    void deliveryReceiptsTrackActualReceiverAndDisabledReception() {
+        Profile owner = profile(); owner.createManaged();
+        Profile member = profile(); QVERIFY(member.join(owner.invitation()));
+        QVERIFY(DeviceAccess::authorize(&owner, member.deviceId, DeviceAccess::publicKey(member), false));
+        QVERIFY(DeviceAccess::updateRegistry(&member, owner.registry));
+        SyncEngine sender(owner, nullptr, 0, 0), receiver(member, nullptr, 0, 0);
+        introduce(sender, member, receiver.port()); introduce(receiver, owner, sender.port());
+        QTRY_COMPARE(sender.peerDescriptions().size(), 1); QTRY_COMPARE(receiver.peerDescriptions().size(), 1);
+        QSignalSpy delivered(&receiver, &SyncEngine::received), incoming(&receiver, &SyncEngine::incomingTransfer);
+        QVERIFY(sender.send(text("receipt content")));
+        QTRY_COMPARE(delivered.size(), 1);
+        QTRY_COMPARE(sender.transfers().first().toMap().value("state").toString(), QStringLiteral("received"));
+        const QString id = incoming.first().at(0).toString();
+        receiver.completeIncoming(id, owner.deviceId, "copied");
+        QTRY_COMPARE(sender.transfers().first().toMap().value("state").toString(), QStringLiteral("copied"));
+        // A duplicate of an accepted transfer does not apply a second copy.
+        QVERIFY(sender.retry(id));
+        QTRY_COMPARE(sender.transfers().first().toMap().value("state").toString(), QStringLiteral("copied"));
+        QCOMPARE(delivered.size(), 1);
+        member.receivingEnabled = false;
+        SyncEngine disabled(member, nullptr, 0, 0);
+        introduce(sender, member, disabled.port()); QTest::qWait(30);
+        QVERIFY(sender.send(text("blocked")));
+        QTRY_COMPARE(sender.transfers().first().toMap().value("state").toString(), QStringLiteral("failed"));
+        QVERIFY(sender.transfers().first().toMap().value("error").toString().contains("disabled"));
+    }
+    void historyIsOptInEncryptedBoundedAndCanBePurged() {
+        LocalHistory::clear();
+        Profile p = profile(); p.createManaged();
+        QVERIFY(p.save());
+        QVERIFY(LocalHistory::record(p, text("history secret marker")));
+        QVERIFY(LocalHistory::entries(p).isEmpty());
+        p.historyEnabled = true; p.historyMiB = 1; QVERIFY(p.save());
+        QVERIFY(LocalHistory::record(p, text("history secret marker")));
+        auto list = LocalHistory::entries(p, "SECRET MARKER"); QCOMPARE(list.size(), 1);
+        const QString id = list.first().toMap().value("id").toString();
+        QFile wire(QDir(Profile::dataDirectory()).filePath("history/" + id)); QVERIFY(wire.open(QIODevice::ReadOnly));
+        QVERIFY(!wire.readAll().contains("history secret marker")); wire.close();
+        QCOMPARE(LocalHistory::payload(p, id).value("text").toString(), QStringLiteral("history secret marker"));
+        QVERIFY(LocalHistory::payload(p, "../profile.json").isEmpty());
+        QVERIFY(LocalHistory::entries(p, "absent").isEmpty());
+        for (int i = 0; i < 3; ++i) QVERIFY(LocalHistory::record(p, text(QString(400000, QChar('a' + i)))));
+        qint64 total = 0;
+        const auto directory = QDir(QDir(Profile::dataDirectory()).filePath("history"));
+        for (const auto &file : directory.entryInfoList(QDir::Files)) total += file.size();
+        QVERIFY(total <= 1024 * 1024);
+        const auto expiredId = QString::number(QDateTime::currentMSecsSinceEpoch() - 8LL * 86400000) + "-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+        QFile expired(directory.filePath(expiredId)); QVERIFY(expired.open(QIODevice::WriteOnly)); expired.write("expired"); expired.close();
+        LocalHistory::prune(p); QVERIFY(!expired.exists());
+        p.historyEnabled = false; QVERIFY(p.save()); LocalHistory::prune(p);
+        QVERIFY(!QFile::exists(wire.fileName()));
+        // A delayed worker using the old enabled snapshot must not recreate deleted history.
+        Profile stale = p; stale.historyEnabled = true;
+        QVERIFY(LocalHistory::record(stale, text("stale")));
+        QVERIFY(!QDir(QDir(Profile::dataDirectory()).filePath("history")).exists());
+    }
+    void privacySettingsSurviveReloadAndTimedPauseExpires() {
+        Profile p = profile(); p.sendingEnabled = false; p.receivingEnabled = false;
+        p.historyEnabled = true; p.historyDays = 1; p.historyMiB = 4;
+        p.excludedApplications = {"password-manager.exe", "com.apple.keychainaccess"};
+        p.pauseUntil = QDateTime::currentSecsSinceEpoch() + 900;
+        QTemporaryDir directory; QVERIFY(p.save(nullptr, directory.path()));
+        const auto restored = Profile::load(directory.path());
+        QVERIFY(restored.isPaused()); QVERIFY(!restored.sendingEnabled); QVERIFY(!restored.receivingEnabled);
+        QCOMPARE(restored.historyDays, 1); QCOMPARE(restored.historyMiB, 4); QCOMPARE(restored.excludedApplications, p.excludedApplications);
+        p.pauseUntil = QDateTime::currentSecsSinceEpoch() - 1; QVERIFY(!p.isPaused());
+    }
+
     void qrConnectionIncludesAddressesAndRejectsMalformedHints() {
         const Profile source = profile();
         const ConnectionInfo invitation{source.invitation(), {"192.168.1.20", "10.0.0.3"}};

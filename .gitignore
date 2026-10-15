@@ -117,6 +117,10 @@ __pycache__/
 /outbox.json
 /outbox-claimed.json
 /service-state.json
+/service-command.json
+/devices.json
+/history/
+/receipts/
 # Exported invitations contain the personal profile secret; keep icon PNGs tracked
 LocalClipboard-connection*.png
 

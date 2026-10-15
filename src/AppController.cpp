@@ -8,6 +8,17 @@
 #include "ConnectionInfo.h"
 #include "ClipboardPayload.h"
 #include "Uninstall.h"
+#include "DeviceAccess.h"
+#include "LocalHistory.h"
+#include "SourceApplication.h"
+#include <QDateTime>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QNetworkInterface>
+#include <QSaveFile>
+#include <QSysInfo>
+#include <QImageReader>
+#include <QLocale>
 #include <QPointer>
 #include <QApplication>
 #include <QClipboard>
@@ -29,6 +40,8 @@ AppController::AppController(const Profile &profile, QObject *parent)
     connect(&m_session, &ClipboardSession::stateChanged, this, &AppController::stateChanged);
     connect(&m_session, &ClipboardSession::messageChanged, this, &AppController::messageChanged);
     connect(&m_session, &ClipboardSession::busyChanged, this, &AppController::busyChanged);
+    connect(&m_session, &ClipboardSession::transfersChanged, this, &AppController::transfersChanged);
+    connect(&m_session, &ClipboardSession::historyChanged, this, [this] { refreshHistory(); });
     connect(&m_session, &ClipboardSession::shareChanged, this, &AppController::shareChanged);
     connect(qApp, &QGuiApplication::applicationStateChanged, this, &AppController::stateChanged);
     connect(&I18n::instance(), &I18n::languageChanged, this, [this] {
@@ -43,7 +56,7 @@ QString AppController::language() const { return I18n::language(); }
 void AppController::setLanguage(const QString &language) { I18n::setLanguage(language); }
 bool AppController::registerDevice(const QString &owner, const QString &device, bool join, const QString &code) {
     Profile next = m_session.profile();
-    next.ownerName = owner.trimmed(); next.deviceName = device.trimmed(); next.paused = false;
+    next.ownerName = owner.trimmed(); next.deviceName = device.trimmed(); next.paused = false; next.pauseUntil = 0;
     if (next.ownerName.isEmpty() || next.deviceName.isEmpty() || next.ownerName.size() > 80 || next.deviceName.size() > 80) {
         m_session.report("Enter your name and a device name."); return false;
     }
@@ -51,13 +64,15 @@ bool AppController::registerDevice(const QString &owner, const QString &device, 
         ConnectionInfo info;
         if (!ConnectionInfo::parse(code, &info) || !next.join(info.code)) { m_session.report("Enter the complete connection code from your other device."); return false; }
         next.peerAddresses = info.addresses;
-    } else { next.create(); next.peerAddresses.clear(); }
+    } else { next.createManaged(); next.peerAddresses.clear(); }
 #ifdef Q_OS_IOS
     next.autostart = false;
 #endif
     if (!m_session.saveProfile(next)) return false;
+    LocalHistory::clear(); refreshHistory();
     QString error;
     if (next.autostart && !Autostart::setEnabled(true, &error)) m_session.report(error);
+    else if (join && next.managed()) m_session.report("Waiting for approval on the profile owner's device.");
     else m_session.report("");
     if (!m_pendingImports.isEmpty()) {
         const auto imports = m_pendingImports; m_pendingImports.clear(); m_session.importFiles(imports);
@@ -132,8 +147,14 @@ void AppController::refreshFiles() {
         const QDir directory(root);
         for (const auto &batch : directory.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks, QDir::Time)) {
             for (const auto &file : QDir(batch.absoluteFilePath()).entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Time)) {
+                if (!FileStorage::isReceivedFile(file.filePath(), root)) continue;
                 result.first.append(file.absoluteFilePath());
-                result.second.append(QVariantMap{{"name", file.fileName()}, {"bytes", file.size()}});
+                QImageReader reader(file.canonicalFilePath());
+                const auto dimensions = reader.size();
+                const bool image = reader.canRead() && dimensions.isValid() && qint64(dimensions.width()) * dimensions.height() <= 16000000;
+                result.second.append(QVariantMap{{"name", file.fileName()}, {"bytes", file.size()},
+                    {"thumbnail", image ? QUrl::fromLocalFile(file.canonicalFilePath()).toString() : QString()},
+                    {"size", QLocale().formattedDataSize(file.size())}});
                 if (result.first.size() == 500) return result;
             }
         }
@@ -164,4 +185,97 @@ void AppController::deleteReceivedFile(int index) {
         if (!removed) m_session.report("Could not delete local file.");
         refreshFiles();
     });
+}
+
+QString AppController::accessState() const {
+    const auto &p = m_session.profile();
+    if (!p.managed() || DeviceAccess::approved(p, p.deviceId, DeviceAccess::publicKey(p))) return "approved";
+    for (const auto &entry : p.registry.value("devices").toArray()) {
+        const auto d = entry.toObject();
+        if (d.value("id").toString() == p.deviceId && d.value("revoked").toBool()) return "revoked";
+    }
+    return "pending";
+}
+bool AppController::administrator() const { return DeviceAccess::isAdministrator(m_session.profile()); }
+QString AppController::fingerprint() const { return DeviceAccess::fingerprint(DeviceAccess::publicKey(m_session.profile())); }
+bool AppController::sourceExclusionsSupported() const { return SourceApplication::supported(); }
+bool AppController::authorizeDevice(const QString &id, bool revoke) {
+    if (!m_session.authorizeDevice(id, revoke)) { report("Device access could not be changed. Use the profile owner's device."); return false; }
+    return true;
+}
+bool AppController::renameDevice(const QString &name) {
+    Profile next = m_session.profile(); next.deviceName = name.trimmed();
+    if (!next.registered()) { report("Enter a device name between 1 and 80 characters."); return false; }
+    return m_session.saveProfile(next);
+}
+bool AppController::retryTransfer(const QString &id) {
+    if (m_session.retryTransfer(id)) return true;
+    report("Retry is unavailable. Connect the device and send again."); return false;
+}
+void AppController::resendFile(int index) {
+    if (index < 0 || index >= m_filePaths.size()) return;
+    const auto path = m_filePaths.at(index);
+    if (FileStorage::isReceivedFile(path, QDir(Profile::dataDirectory()).filePath("received"))) m_session.sendReceivedFile(QUrl::fromLocalFile(path));
+}
+void AppController::pauseFor15Minutes() {
+    Profile next = m_session.profile(); next.paused = false; next.pauseUntil = QDateTime::currentSecsSinceEpoch() + 900;
+    m_session.saveProfile(next);
+}
+void AppController::setSendingEnabled(bool enabled) { Profile next = m_session.profile(); next.sendingEnabled = enabled; m_session.saveProfile(next); }
+void AppController::setReceivingEnabled(bool enabled) { Profile next = m_session.profile(); next.receivingEnabled = enabled; m_session.saveProfile(next); }
+void AppController::setHistoryEnabled(bool enabled) {
+    Profile next = m_session.profile(); next.historyEnabled = enabled;
+    if (m_session.saveProfile(next)) { if (!enabled) LocalHistory::clear(); refreshHistory(); }
+}
+void AppController::setHistoryLimits(int days, int mib) {
+    Profile next = m_session.profile(); next.historyDays = qBound(1, days, 30); next.historyMiB = qBound(1, mib, 64);
+    if (m_session.saveProfile(next)) refreshHistory();
+}
+bool AppController::setExcludedApplications(const QString &applications) {
+    if (!sourceExclusionsSupported() || applications.size() > 4096) return false;
+    auto entries = applications.split('\n', Qt::SkipEmptyParts);
+    if (entries.size() > 64) return false;
+    Profile next = m_session.profile(); next.excludedApplications.clear();
+    for (const auto &entry : entries) { if (entry.trimmed().size() > 256) return false; next.excludedApplications.append(entry.trimmed()); }
+    return m_session.saveProfile(next);
+}
+void AppController::refreshHistory(const QString &query) {
+    const Profile profile = m_session.profile(); const auto revision = ++m_historyRevision;
+    Async::run(this, [profile, query] { return LocalHistory::entries(profile, query.left(256)); }, [this, revision](const QVariantList &list) {
+        if (revision != m_historyRevision) return;
+        m_history = list; emit historyChanged();
+    });
+}
+void AppController::clearHistory() { LocalHistory::clear(); refreshHistory(); }
+QString AppController::translateStatus(const QString &text) const { return I18n::text(text); }
+void AppController::checkNetwork() {
+    m_session.announce();
+    int interfaces = 0;
+    for (const auto &interface : QNetworkInterface::allInterfaces())
+        if (interface.flags().testFlag(QNetworkInterface::IsUp) && !interface.flags().testFlag(QNetworkInterface::IsLoopBack)) ++interfaces;
+    // Deliberately construct an allowlist; never serialize Profile or payload objects.
+    const QJsonObject report{{"application", "LocalClipboard"}, {"version", QCoreApplication::applicationVersion()},
+        {"qt", qVersion()}, {"os", QSysInfo::productType()}, {"osVersion", QSysInfo::productVersion()},
+        {"registered", registered()}, {"managedAccess", managedAccess()}, {"receiving", receiving()},
+        {"paused", paused()}, {"sendingEnabled", sendingEnabled()}, {"receivingEnabled", receivingEnabled()},
+        {"activeInterfaces", interfaces}, {"onlineDevices", peers().size()}, {"discoveryPort", 45871},
+        {"historyEnabled", historyEnabled()}, {"time", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
+        {"guidance", "Use the same LAN, allow TCP/UDP in the firewall, and keep iOS open. Guest Wi-Fi may isolate devices."}};
+    m_diagnostics = QString::fromUtf8(QJsonDocument(report).toJson(QJsonDocument::Indented)); emit diagnosticsChanged();
+}
+void AppController::copyDiagnostics() { checkNetwork(); QApplication::clipboard()->setText(m_diagnostics); }
+void AppController::exportDiagnostics() {
+    checkNetwork();
+    const auto path = QFileDialog::getSaveFileName(nullptr, I18n::text("Save diagnostic report"), "LocalClipboard-diagnostics.json", "JSON (*.json)");
+    if (path.isEmpty()) return;
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) { report("Could not save diagnostic report."); return; }
+    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    const auto bytes = m_diagnostics.toUtf8();
+    if (file.write(bytes) != bytes.size()) report("Could not save diagnostic report.");
+}
+bool AppController::upgradeAccess() {
+    Profile next = m_session.profile(); next.createManaged(); next.paused = false; next.pauseUntil = 0;
+    if (!m_session.saveProfile(next)) return false;
+    LocalHistory::clear(); refreshHistory(); emit stateChanged(); return true;
 }

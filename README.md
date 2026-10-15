@@ -17,10 +17,15 @@ Wi-Fi does not connect these profiles. Device IDs, names, profile membership, pa
 and startup preferences survive restarts and upgrades. A device uses one profile
 at a time; **Change personal profile** registers it with a new or existing profile.
 
-The `LC2.…` code contains a random 256-bit secret. Treat it like a password and
-transfer it privately. It is excluded from automatic clipboard synchronization.
-If a code is exposed or a device is lost, create a new profile and reconnect your
-remaining devices. Individual device revocation and cloud accounts are not provided.
+New profiles use `LC3.…` invitations and separate device keys. The profile owner's
+device approves join requests and can revoke lost devices under **Devices and access**.
+Compare fingerprints before approving. Revocations propagate when devices reconnect;
+keep the owner available. Existing `LC2.…` profiles continue working and can be
+explicitly upgraded, which requires reconnecting the other devices. Keep all
+connection codes and QR images private; they are excluded from automatic sync.
+
+See [delivery, devices, privacy and signed distribution](FEATURES.md) for transfer
+receipts, photo previews, retries, optional encrypted history and diagnostic reports.
 
 ### Connect using a QR code
 
@@ -256,7 +261,15 @@ for regeneration after changing the SVG.
 
 Каждый человек создаёт отдельный профиль. Например, ноутбук и телефон Антона используют его код, а устройства его девушки — другой. Подключение к одной сети Wi-Fi не объединяет эти профили. Идентификаторы и имена устройств, принадлежность к профилю, настройки паузы и автозапуска сохраняются после перезапуска и обновления. Устройство использует один профиль одновременно; смена личного профиля позволяет зарегистрировать его в новом или существующем профиле.
 
-Код `LC2.…` содержит случайный секрет длиной 256 бит. Обращайтесь с ним как с паролем и передавайте его приватно. Он исключён из автоматической синхронизации буфера. Если код стал известен посторонним или устройство потеряно, создайте новый профиль и подключите к нему оставшиеся устройства. Отзыв доступа отдельного устройства и облачные учётные записи не предусмотрены.
+Новые профили используют приглашения `LC3.…` и отдельные ключи устройств. Устройство
+владельца одобряет подключения и отзывает потерянные устройства в разделе
+**Устройства и доступ**. Перед одобрением сравнивайте отпечатки. Отзыв распространяется
+при подключении: держите владельца в сети. Существующие профили `LC2.…` работают и
+могут быть явно обновлены с подключением остальных устройств заново. Храните коды и
+QR приватно; они исключены из автоматической синхронизации.
+
+Подтверждения доставки, миниатюры, повторы, необязательная зашифрованная история и
+отчёты описаны в [руководстве по возможностям и подписи](FEATURES.md#русская-версия).
 
 ### Подключение по QR-коду
 

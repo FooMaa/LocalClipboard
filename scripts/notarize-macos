@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $# == 1 ]] || { echo 'Usage: scripts/notarize-macos ARCHIVE_OR_DMG' >&2; exit 1; }
+: "${MACOS_NOTARY_PROFILE:?Set MACOS_NOTARY_PROFILE to an xcrun notarytool keychain profile}"
+[[ -f "$1" ]] || { echo 'Notarization input does not exist.' >&2; exit 1; }
+# notarytool returns failure for rejected submissions; never staple a rejected artifact.
+xcrun notarytool submit "$1" --keychain-profile "$MACOS_NOTARY_PROFILE" --wait
+if [[ "$1" == *.dmg ]]; then
+    xcrun stapler staple "$1"
+    xcrun stapler validate "$1"
+fi

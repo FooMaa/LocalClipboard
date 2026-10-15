@@ -23,9 +23,12 @@ build_dir=$(cd "$build_dir" && pwd)
 version=$(sed -n 's/^project(LocalClipboard VERSION \([^ ]*\).*/\1/p' "$ROOT/CMakeLists.txt")
 [[ -n "$version" ]] || fail "Project version missing"
 stage=$(mktemp -d)
-trap 'rm -rf "$stage"' EXIT
+trap 'package_status=$?; rm -rf "$stage"; exit "$package_status"' EXIT
 case "$format" in
     linux|deb|sh)
+        if [[ ${LC_REQUIRE_SIGNING:-0} == 1 ]]; then
+            [[ -n ${LC_GPG_SIGNING_KEY:-} ]] || fail "LC_GPG_SIGNING_KEY: Release distribution requires a GPG signing key"
+        fi
         [[ $(uname -s) == Linux ]] || fail "Linux packaging requires Linux"
         [[ -f "$build_dir/LocalClipboard" ]] || fail "Build Linux first"
         arch=$(dpkg --print-architecture)
@@ -76,7 +79,7 @@ CONTROL
 #!/usr/bin/env bash
 set -euo pipefail
 stage=$(mktemp -d)
-trap 'rm -rf "$stage"' EXIT
+trap 'package_status=$?; rm -rf "$stage"; exit "$package_status"' EXIT
 line=$(awk '/^__ARCHIVE_BELOW__$/ {print NR + 1; exit}' "$0")
 tail -n +"$line" "$0" | tar xz -C "$stage"
 bash "$stage/install.sh"
@@ -88,6 +91,11 @@ INSTALLER
         chmod +x "$output"
         ;;
     macos)
+        if [[ ${LC_REQUIRE_SIGNING:-0} == 1 ]]; then
+            [[ -n ${MACOS_APP_SIGN_IDENTITY:-} ]] || fail "MACOS_APP_SIGN_IDENTITY: Release distribution requires a Developer ID Application certificate"
+            [[ -n ${MACOS_INSTALLER_SIGN_IDENTITY:-} ]] || fail "MACOS_INSTALLER_SIGN_IDENTITY: Release distribution requires a Developer ID Installer certificate"
+            [[ -n ${MACOS_NOTARY_PROFILE:-} ]] || fail "MACOS_NOTARY_PROFILE: Release distribution requires a notarytool keychain profile"
+        fi
         [[ $(uname -s) == Darwin ]] || fail "macOS packaging requires macOS"
         app="$build_dir/LocalClipboard.app"
         [[ -d "$app" ]] || app="$build_dir/$config/LocalClipboard.app"
@@ -156,6 +164,13 @@ PY
             --scripts "$stage/removal-scripts" "$stage/removal.pkg"
         "$ROOT/scripts/package-macos-installer" "$stage/component.pkg" "$stage/removal.pkg" "$ROOT/dist/LocalClipboard-macos-installer.dmg"
         rm -f "$ROOT/dist/LocalClipboard-macos-installer.pkg"
+        if [[ -n ${MACOS_NOTARY_PROFILE:-} ]]; then
+            "$ROOT/scripts/notarize-macos" "$ROOT/dist/LocalClipboard-macos-package.zip"
+            xcrun stapler staple "$deployed_app"
+            xcrun stapler validate "$deployed_app"
+            ditto -c -k "$stage/root/Applications" "$ROOT/dist/LocalClipboard-macos-package.zip"
+            "$ROOT/scripts/notarize-macos" "$ROOT/dist/LocalClipboard-macos-installer.dmg"
+        fi
         ;;
     ios)
         [[ $(uname -s) == Darwin ]] || fail "iOS packaging requires macOS"
@@ -171,6 +186,10 @@ PY
         "$ROOT/scripts/package-ios-installer"
         ;;
     windows)
+        if [[ ${LC_REQUIRE_SIGNING:-0} == 1 ]]; then
+            [[ -n ${LC_WINDOWS_CERT_SHA1:-} ]] || fail "LC_WINDOWS_CERT_SHA1: Release distribution requires an Authenticode certificate"
+            [[ -n ${LC_WINDOWS_TIMESTAMP_URL:-} ]] || fail "LC_WINDOWS_TIMESTAMP_URL: Release distribution requires an RFC 3161 timestamp service"
+        fi
         [[ "$config" != Debug ]] || fail "Redistributable Windows packages require Release/RelWithDebInfo; use build -n for a Debug application"
         # Chocolatey can install NSIS outside the current shell's PATH. Convert
         # explicit Windows paths for Git Bash and check both Program Files roots.
@@ -197,6 +216,9 @@ PY
         deploy="$stage/deploy"
         mkdir -p "$deploy/licenses"
         cp "$binary" "$deploy/LocalClipboard.exe"
+        if [[ -n ${LC_WINDOWS_CERT_SHA1:-} ]]; then
+            powershell.exe -NoProfile -File "$(cygpath -w "$ROOT/scripts/sign-windows.ps1")" -Path "$(cygpath -w "$deploy/LocalClipboard.exe")"
+        fi
         cp "$ROOT/third_party/monocypher/LICENCE.md" "$deploy/licenses/monocypher.txt"
         cp "$ROOT/third_party/zxing/LICENSE" "$deploy/licenses/zxing.txt"
         cp "$ROOT/third_party/zxing/NOTICES.txt" "$deploy/licenses/zxing-notices.txt"
@@ -217,6 +239,9 @@ PY
         MSYS_NO_PATHCONV=1 "$nsis" "-DAPP_VERSION=$version" "-DDEPLOY_DIR=$deploy_win" \
             "-DOUTPUT_FILE=$(cygpath -w "$ROOT/dist/LocalClipboard-windows-installer.exe")" \
             "$(cygpath -w "$ROOT/packaging/windows/installer.nsi")"
+        if [[ -n ${LC_WINDOWS_CERT_SHA1:-} ]]; then
+            powershell.exe -NoProfile -File "$(cygpath -w "$ROOT/scripts/sign-windows.ps1")" -Path "$(cygpath -w "$ROOT/dist/LocalClipboard-windows-installer.exe")"
+        fi
         ;;
     android|apk)
         apk=
@@ -238,4 +263,13 @@ PY
         ;;
     *) usage >&2; exit 1 ;;
 esac
+# Detached signatures keep Linux packages/installers verifiable without altering payloads.
+if [[ "$format" == linux || "$format" == deb || "$format" == sh ]]; then
+    if [[ -n ${LC_GPG_SIGNING_KEY:-} ]]; then
+        for artifact in "$package" "$output"; do
+            gpg --batch --yes --local-user "$LC_GPG_SIGNING_KEY" --armor --detach-sign "$artifact"
+            gpg --verify "$artifact.asc" "$artifact"
+        done
+    fi
+fi
 printf 'Packages and installers: %s/dist/\n' "$ROOT"

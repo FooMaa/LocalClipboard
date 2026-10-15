@@ -19,6 +19,9 @@ class PackagingTests(unittest.TestCase):
         self.directory = Path(self.temporary.name)
         self.log = self.directory / 'commands.jsonl'
         self.env = dict(os.environ, LC_LANGUAGE='ru', LC_TEST_LOG=str(self.log))
+        for name in ('LC_REQUIRE_SIGNING', 'LC_WINDOWS_CERT_SHA1', 'LC_GPG_SIGNING_KEY',
+                     'MACOS_APP_SIGN_IDENTITY', 'MACOS_INSTALLER_SIGN_IDENTITY', 'MACOS_NOTARY_PROFILE'):
+            self.env.pop(name, None)
         binaries = self.directory / 'bin'
         binaries.mkdir()
         for tool in ('adb', 'xcrun', 'dpkg-query', 'apt-get', 'sudo', 'systemctl', 'localclipboard'):
@@ -42,6 +45,35 @@ class PackagingTests(unittest.TestCase):
 
     def commands(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+
+    def test_public_packaging_requires_distribution_keys(self):
+        for platform, variable in (('macos', 'MACOS_APP_SIGN_IDENTITY'), ('windows', 'LC_WINDOWS_CERT_SHA1'), ('linux', 'LC_GPG_SIGNING_KEY')):
+            env = dict(self.env, LC_REQUIRE_SIGNING='1')
+            env.pop(variable, None)
+            result = subprocess.run(['bash', str(ROOT / 'scripts/package'), '-t', platform, '-b', str(self.directory)], env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(variable, result.stderr)
+
+    def test_macos_notarization_is_followed_by_stapling(self):
+        artifact = self.directory / 'LocalClipboard installer.dmg'
+        artifact.write_bytes(b'test artifact')
+        env = dict(self.env, MACOS_NOTARY_PROFILE='test-notary-profile')
+        result = subprocess.run(['bash', str(ROOT / 'scripts/notarize-macos'), str(artifact)], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.commands(), [
+            ['notarytool', 'submit', str(artifact), '--keychain-profile', 'test-notary-profile', '--wait'],
+            ['stapler', 'staple', str(artifact)], ['stapler', 'validate', str(artifact)]])
+
+    def test_rejected_notarization_is_never_stapled(self):
+        artifact = self.directory / 'LocalClipboard.dmg'
+        artifact.write_bytes(b'test artifact')
+        tool = self.directory / 'bin/xcrun'
+        with tool.open('a') as stream:
+            stream.write('if "submit" in sys.argv: sys.exit(1)\n')
+        result = subprocess.run(['bash', str(ROOT / 'scripts/notarize-macos'), str(artifact)],
+                                env=dict(self.env, MACOS_NOTARY_PROFILE='test-notary-profile'), capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.commands()), 1)
 
     def test_qml_deployment_includes_imports_without_unrelated_nested_styles(self):
         qml = self.directory / 'Qt qml'
