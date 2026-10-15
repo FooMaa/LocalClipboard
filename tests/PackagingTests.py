@@ -91,7 +91,10 @@ class PackagingTests(unittest.TestCase):
         self.env['LC_TEST_INSTALLED'] = 'yes'
         for error, explanation in [('INSTALL_FAILED_UPDATE_INCOMPATIBLE', 'Подпись APK отличается'),
                                    ('INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES', 'Подпись APK отличается'),
-                                   ('INSTALL_FAILED_VERSION_DOWNGRADE', 'Установлена более новая версия')]:
+                                   ('INSTALL_FAILED_VERSION_DOWNGRADE', 'Установлена более новая версия'),
+                                   ('INSTALL_FAILED_USER_RESTRICTED', 'Установка запрещена'),
+                                   ('INSTALL_FAILED_INSUFFICIENT_STORAGE', 'Недостаточно места'),
+                                   ('INSTALL_FAILED_NO_MATCHING_ABIS', 'Для Galaxy S25')]:
             with self.subTest(error=error):
                 self.env['LC_TEST_INSTALL_ERROR'] = error
                 result = subprocess.run(['bash', str(script)], env=self.env, input='1\n', capture_output=True, text=True)

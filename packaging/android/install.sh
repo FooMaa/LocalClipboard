@@ -26,6 +26,12 @@ else
         localized "Подпись APK отличается от установленной версии. Регистрация сохранена. Установите APK с прежним ключом подписи. Если ключ потерян: сначала сохраните код подключения из приложения, затем выберите удаление в установщике и установите APK заново. При удалении данные телефона стираются." "The APK signing key differs from the installed version. Your registration is preserved. Use an APK signed with the original key. If that key is lost: save your connection code from the app, select removal in this installer, then install again. Removal erases the phone's app data." >&2
     elif [[ $output == *INSTALL_FAILED_VERSION_DOWNGRADE* ]]; then
         localized "Установлена более новая версия. Используйте новый APK; регистрация сохранена." "A newer version is installed. Use a newer APK; your registration is preserved." >&2
+    elif [[ $output == *INSTALL_FAILED_USER_RESTRICTED* ]]; then
+        localized "Установка запрещена настройками устройства или профиля. На Samsung проверьте «Автоблокировку» и разрешение установки из выбранного источника; также возможны ограничения администратора или родительского контроля. Регистрация сохранена." "Installation is blocked by device/profile settings. On Samsung, check Auto Blocker and permission to install from your chosen source; administrator or parental restrictions may also apply. Registration is preserved." >&2
+    elif [[ $output == *INSTALL_FAILED_INSUFFICIENT_STORAGE* ]]; then
+        localized "Недостаточно места на телефоне. Освободите место и повторите установку; регистрация сохранена." "Not enough space on the phone. Free some storage and retry; registration is preserved." >&2
+    elif [[ $output == *INSTALL_FAILED_NO_MATCHING_ABIS* ]]; then
+        localized "Архитектура APK не подходит телефону. Для Galaxy S25 используйте APK arm64-v8a. Регистрация сохранена." "The APK architecture does not match the phone. Use the arm64-v8a APK for Galaxy S25. Registration is preserved." >&2
     fi
     exit 1
 fi

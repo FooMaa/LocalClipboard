@@ -40,6 +40,18 @@ if ($InstallExitCode -ne 0) {
         if ($Language -eq 'ru') { throw 'Установлена более новая версия. Используйте новый APK; регистрация сохранена.' }
         throw 'A newer version is installed. Use a newer APK; registration preserved.'
     }
+    if ("$InstallOutput" -match 'INSTALL_FAILED_USER_RESTRICTED') {
+        if ($Language -eq 'ru') { throw 'Установка запрещена настройками устройства или профиля. На Samsung проверьте «Автоблокировку» и разрешение установки из выбранного источника; возможны ограничения администратора или родительского контроля. Регистрация сохранена.' }
+        throw 'Installation is blocked by device/profile settings. On Samsung, check Auto Blocker and permission for your installation source; administrator or parental restrictions may apply. Registration preserved.'
+    }
+    if ("$InstallOutput" -match 'INSTALL_FAILED_INSUFFICIENT_STORAGE') {
+        if ($Language -eq 'ru') { throw 'Недостаточно места на телефоне. Освободите место и повторите установку; регистрация сохранена.' }
+        throw 'Not enough space on the phone. Free some storage and retry; registration preserved.'
+    }
+    if ("$InstallOutput" -match 'INSTALL_FAILED_NO_MATCHING_ABIS') {
+        if ($Language -eq 'ru') { throw 'Архитектура APK не подходит телефону. Для Galaxy S25 используйте APK arm64-v8a. Регистрация сохранена.' }
+        throw 'APK architecture does not match the phone. Use the arm64-v8a APK for Galaxy S25. Registration preserved.'
+    }
     throw 'APK installation failed. See the Android error above.'
 }
 & adb @AdbArgs shell am start -n org.localclipboard/.ClipboardActivity --es localclipboard_language $Language

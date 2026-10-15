@@ -26,6 +26,13 @@ key has been lost, first save your connection code from **Connect device…**; t
 explicitly choose uninstall, install the new APK and reconnect to that profile.
 Uninstalling deletes local received files as well as the phone's registration.
 
+On Samsung Galaxy, the generic “App not installed” dialog does not identify the
+cause. Run this installer over adb to see the actual `INSTALL_FAILED_…` error.
+For `INSTALL_FAILED_USER_RESTRICTED`, check device/profile policy; Samsung's
+Auto Blocker and installation-source permissions can block sideloading. See
+[Samsung's installation guide](https://www.samsung.com/ae/support/mobile-devices/how-to-enable-permission-to-install-apps-from-unknown-source-on-my-samsung-phone/).
+The installer also explains insufficient storage and incompatible APK architecture.
+
 ## Incoming notifications and responsiveness
 
 Incoming items have a separate high-importance notification channel,
@@ -66,6 +73,8 @@ recorded by live scanning. Choice fields use native Android radio-button dialogs
 Для управления установленным приложением снова запустите тот же `install.sh`: выберите переустановку, удаление или отмену. Удаление требует ввода `DELETE` и стирает локальные данные приложения на этом устройстве. Переустановка сохраняет профиль. Штатное удаление приложения средствами ОС также работает. На Windows используйте параметры `-Serial`, `-Language ru` и `-Action uninstall` со скриптом `install.ps1`.
 
 Для обновления нужен **тот же ключ подписи**, что у установленного APK. Скрипты объясняют конфликт подписей или попытку установить более старую версию, сохраняя данные. Если прежний ключ потерян, сначала сохраните код подключения через **«Подключить устройство…»**, затем явно выберите удаление, установите новый APK и подключитесь к прежнему профилю. При удалении стираются и полученные локальные файлы, и регистрация телефона.
+
+На Samsung Galaxy общее сообщение «Приложение не установлено» не раскрывает причину. Запустите этот установщик через adb, чтобы увидеть точный код `INSTALL_FAILED_…`. При `INSTALL_FAILED_USER_RESTRICTED` проверьте ограничения устройства или профиля; установке APK могут мешать «Автоблокировка» Samsung и разрешения источника установки. См. [инструкцию Samsung](https://www.samsung.com/ae/support/mobile-devices/how-to-enable-permission-to-install-apps-from-unknown-source-on-my-samsung-phone/). Установщик также объясняет нехватку места и несовместимую архитектуру APK.
 
 ### Уведомления и отзывчивость
 
