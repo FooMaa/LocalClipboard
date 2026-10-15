@@ -172,6 +172,24 @@ PY
         ;;
     windows)
         [[ "$config" != Debug ]] || fail "Redistributable Windows packages require Release/RelWithDebInfo; use build -n for a Debug application"
+        # Chocolatey can install NSIS outside the current shell's PATH. Convert
+        # explicit Windows paths for Git Bash and check both Program Files roots.
+        nsis=
+        if [[ -n ${NSIS_EXE:-} ]]; then
+            nsis=$(command -v "$NSIS_EXE" || true)
+            [[ -n "$nsis" ]] || nsis=$(cygpath -u "$NSIS_EXE")
+        else
+            nsis=$(command -v makensis || command -v makensis.exe || true)
+            if [[ -z "$nsis" ]]; then
+                for variable in ProgramW6432 ProgramFiles 'ProgramFiles(x86)'; do
+                    program_files=$(printenv "$variable" || true)
+                    [[ -n "$program_files" ]] || continue
+                    candidate="$(cygpath -u "$program_files")/NSIS/makensis.exe"
+                    if [[ -x "$candidate" ]]; then nsis=$candidate; break; fi
+                done
+            fi
+        fi
+        [[ -n "$nsis" && -x "$nsis" ]] || fail "Install NSIS or set NSIS_EXE to makensis.exe (resolved: $nsis)"
         binary="$build_dir/$config/LocalClipboard.exe"
         [[ -f "$binary" ]] || binary="$build_dir/LocalClipboard.exe"
         [[ -f "$binary" ]] || fail "Build Windows first"
@@ -196,11 +214,6 @@ PY
         output_win=$(cygpath -w "$ROOT/dist/LocalClipboard-windows-package.zip")
         export LOCALCLIPBOARD_DEPLOY="$deploy_win" LOCALCLIPBOARD_PACKAGE="$output_win"
         powershell.exe -NoProfile -Command 'Compress-Archive -Path (Join-Path $env:LOCALCLIPBOARD_DEPLOY "*") -DestinationPath $env:LOCALCLIPBOARD_PACKAGE -Force'
-        nsis=${NSIS_EXE:-makensis}
-        if ! command -v "$nsis" >/dev/null; then
-            nsis='/c/Program Files (x86)/NSIS/makensis.exe'
-        fi
-        [[ -x "$nsis" ]] || command -v "$nsis" >/dev/null || fail "Install NSIS or set NSIS_EXE"
         MSYS_NO_PATHCONV=1 "$nsis" "-DAPP_VERSION=$version" "-DDEPLOY_DIR=$deploy_win" \
             "-DOUTPUT_FILE=$(cygpath -w "$ROOT/dist/LocalClipboard-windows-installer.exe")" \
             "$(cygpath -w "$ROOT/packaging/windows/installer.nsi")"

@@ -31,7 +31,22 @@ jobs:
         if: runner.os == 'Windows'
       - name: Install Windows installer tools
         if: runner.os == 'Windows'
-        run: choco install nsis --yes --no-progress
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          if ($LASTEXITCODE -notin 0, 3010) { throw "NSIS installation failed: $LASTEXITCODE" }
+          $candidates = @(
+            (Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
+            (Join-Path $env:ProgramFiles 'NSIS\makensis.exe')
+            (Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe')
+          )
+          $candidates += Get-ChildItem "$env:ChocolateyInstall\lib\nsis*" -Filter makensis.exe -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty FullName
+          $nsis = $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+          if (-not $nsis) { throw 'NSIS installed, but makensis.exe was not found' }
+          & $nsis /VERSION
+          if ($LASTEXITCODE -ne 0) { throw 'makensis.exe could not be started' }
+          "NSIS_EXE=$nsis" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Build application, package and installer
         shell: bash
         run: ./scripts/build -t desktop

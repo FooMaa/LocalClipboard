@@ -5,6 +5,7 @@ from pathlib import Path
 import plistlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -41,6 +42,62 @@ class PackagingTests(unittest.TestCase):
 
     def commands(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+
+    def test_windows_packaging_finds_nsis_and_preserves_paths_with_spaces(self):
+        repository = self.directory / 'repository with spaces'
+        for name in ('scripts', 'third_party/monocypher', 'third_party/zxing', 'packaging/windows', 'build/Release'):
+            (repository / name).mkdir(parents=True)
+        shutil.copy(ROOT / 'scripts/package', repository / 'scripts/package')
+        (repository / 'CMakeLists.txt').write_text('project(LocalClipboard VERSION 2.2.0 LANGUAGES C CXX)\n')
+        for name in ('third_party/monocypher/LICENCE.md', 'third_party/zxing/LICENSE',
+                     'third_party/zxing/NOTICES.txt', 'packaging/windows/installer.nsi', 'build/Release/LocalClipboard.exe'):
+            (repository / name).write_text('test fixture')
+        binaries = self.directory / 'windows-tools'
+        binaries.mkdir()
+        # Use only these tools so a host-installed NSIS cannot hide lookup bugs.
+        for name in ('bash', 'dirname', 'mkdir', 'sed', 'mktemp', 'rm', 'cp', 'find', 'printenv'):
+            (binaries / name).symlink_to(shutil.which(name))
+        (binaries / 'python3').symlink_to(sys.executable)
+        def executable(path, code):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('#!/usr/bin/env python3\n' + code)
+            path.chmod(0o755)
+        executable(binaries / 'cygpath',
+                   'import os, sys\np = sys.argv[-1]\n'
+                   'if p.startswith("C:\\\\"): p = os.environ["LC_TEST_C_DRIVE"] + "/" + p[3:].replace("\\\\", "/")\n'
+                   'print(p)\n')
+        executable(binaries / 'windeployqt', 'pass\n')
+        executable(binaries / 'powershell.exe',
+                   'import os\nfrom pathlib import Path\nPath(os.environ["LOCALCLIPBOARD_PACKAGE"]).write_bytes(b"zip")\n')
+        drive = self.directory / 'drive c'
+        crt = self.directory / 'redist/x64/Microsoft.VC.CRT'
+        crt.mkdir(parents=True)
+        (crt / 'msvcp140.dll').write_text('test runtime')
+        base_env = dict(self.env, PATH=str(binaries), VCToolsRedistDir=str(crt.parent.parent),
+                        VSCMD_ARG_TGT_ARCH='x64', LC_TEST_C_DRIVE=str(drive))
+        for name in ('NSIS_EXE', 'ProgramW6432', 'ProgramFiles', 'ProgramFiles(x86)'):
+            base_env.pop(name, None)
+        cases = [
+            ({}, binaries / 'makensis'),
+            ({'NSIS_EXE': r'C:\custom NSIS\makensis.exe'}, drive / 'custom NSIS/makensis.exe'),
+            ({'ProgramFiles': r'C:\Program Files'}, drive / 'Program Files/NSIS/makensis.exe'),
+            ({'ProgramFiles(x86)': r'C:\Program Files (x86)'}, drive / 'Program Files (x86)/NSIS/makensis.exe'),
+        ]
+        for environment, compiler in cases:
+            with self.subTest(environment=environment):
+                executable(compiler, 'import json, os, sys\nfrom pathlib import Path\n'
+                           'Path(os.environ["LC_TEST_LOG"]).write_text(json.dumps(sys.argv[1:]) + "\\n")\n'
+                           'output = next(a.split("=", 1)[1] for a in sys.argv if a.startswith("-DOUTPUT_FILE="))\n'
+                           'Path(output).write_bytes(b"installer")\n')
+                result = subprocess.run(['bash', str(repository / 'scripts/package'), '-t', 'windows', '-b', str(repository / 'build')],
+                                        env=dict(base_env, **environment), capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                arguments = self.commands()[0]
+                self.assertEqual(len(arguments), 4)
+                self.assertEqual(arguments[0], '-DAPP_VERSION=2.2.0')
+                self.assertEqual(arguments[-1], str(repository / 'packaging/windows/installer.nsi'))
+                self.assertEqual((repository / 'dist/LocalClipboard-windows-installer.exe').read_bytes(), b'installer')
+                compiler.unlink()
 
     def test_android_installer_passes_language_and_serial_literally(self):
         script = self.script('android', 'install.sh')
