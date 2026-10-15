@@ -1,4 +1,5 @@
 #include "AndroidBridge.h"
+#include "Async.h"
 #include "ClipboardPayload.h"
 #include "I18n.h"
 #include "SecureProtocol.h"
@@ -57,37 +58,55 @@ void AndroidBridge::stopService() {
     auto context = QNativeInterface::QAndroidApplication::context();
     QJniObject::callStaticMethod<void>(Bridge, "stopSync", "(Landroid/content/Context;)V", context.object());
 }
-bool AndroidBridge::queueOutgoing(const Profile &p, const QJsonObject &payload, QString *error) {
-    if (!ClipboardPayload::validate(payload, error)) return false;
-    return write("outbox.json", QJsonObject{{"group", p.groupId()}, {"time", double(QDateTime::currentSecsSinceEpoch())}, {"payload", payload}}, error);
+void AndroidBridge::queueOutgoing(const Profile &p, const QJsonObject &payload, QObject *owner, const std::function<void(const QString &)> &done) {
+    // Serialize writes so a slow older transfer cannot replace a newer outgoing clipboard.
+    static QThreadPool pool;
+    pool.setMaxThreadCount(1);
+    Async::run(owner, [p, payload] {
+        QString error;
+        if (ClipboardPayload::validate(payload, &error))
+            write("outbox.json", QJsonObject{{"group", p.groupId()}, {"time", double(QDateTime::currentSecsSinceEpoch())}, {"payload", payload}}, &error);
+        return error;
+    }, done, &pool);
 }
-void AndroidBridge::consumeInbox(const Profile &p, const std::function<void(const QJsonObject &)> &apply) {
-    if (p.paused) return;
-    // Rename first so a concurrent service delivery cannot be deleted after applying an older item.
-    const QString claimed = "inbox-claimed.json";
-    QFile::remove(path(claimed));
-    if (!QFile::rename(path("inbox.json"), path(claimed))) return;
-    const QJsonObject obj = read(claimed);
-    if (obj.value("group").toString() == p.groupId()) apply(obj.value("payload").toObject());
-    QFile::remove(path(claimed));
+void AndroidBridge::consumeInbox(const Profile &p, QObject *owner, const std::function<void(const QJsonObject &)> &apply) {
+    Async::run(owner, [p] {
+        if (p.paused) return QJsonObject();
+        // Rename first so a concurrent delivery cannot be deleted with the previous item.
+        const QString claimed = "inbox-claimed.json";
+        // Keep a claimed item until applied, including across Activity/process restarts.
+        if (!QFile::exists(path(claimed)) && !QFile::rename(path("inbox.json"), path(claimed))) return QJsonObject();
+        const QJsonObject obj = read(claimed);
+        if (obj.value("group").toString() == p.groupId() && !obj.value("payload").toObject().isEmpty())
+            return obj.value("payload").toObject();
+        QFile::remove(path(claimed));
+        return QJsonObject();
+    }, apply);
 }
-void AndroidBridge::consumeShares(const std::function<void(const QJsonObject &)> &send, const std::function<void(const QString &)> &error) {
+void AndroidBridge::acknowledgeInbox() { QFile::remove(path("inbox-claimed.json")); }
+void AndroidBridge::consumeShares(QObject *owner, const std::function<void(const QJsonObject &)> &send, const std::function<void(const QString &)> &error) {
     const auto shared = QJniObject::callStaticObjectMethod(Bridge, "takeShare", "()Ljava/lang/String;");
     if (!shared.isValid() || shared.toString().isEmpty()) return;
-    const QJsonObject obj = QJsonDocument::fromJson(shared.toString().toUtf8()).object();
-    if (obj.contains("error")) { error(obj.value("error").toString()); return; }
-    if (obj.contains("files")) {
-        QList<QUrl> urls;
-        for (const auto &item : obj.value("files").toArray()) urls.append(QUrl::fromLocalFile(item.toString()));
-        QString message;
-        const auto payload = ClipboardPayload::fromFiles(urls, &message);
-        if (!payload.isEmpty()) send(payload); else error(message);
-        for (const auto &url : urls) QFile::remove(url.toLocalFile());
-    } else {
+    const QByteArray bytes = shared.toString().toUtf8();
+    Async::run(owner, [bytes] {
+        const QJsonObject obj = QJsonDocument::fromJson(bytes).object();
+        if (obj.contains("error")) return obj;
+        if (obj.contains("files")) {
+            QList<QUrl> urls;
+            for (const auto &item : obj.value("files").toArray()) urls.append(QUrl::fromLocalFile(item.toString()));
+            QString message;
+            const auto payload = ClipboardPayload::fromFiles(urls, &message);
+            for (const auto &url : urls) QFile::remove(url.toLocalFile());
+            return QJsonObject{{"payload", payload}, {"error", message}};
+        }
         const QJsonObject payload{{"kind", "text"}, {"text", obj.value("text")}, {"html", ""}};
         QString message;
-        if (ClipboardPayload::validate(payload, &message)) send(payload); else error(message);
-    }
+        if (!ClipboardPayload::validate(payload, &message)) return QJsonObject{{"error", message}};
+        return QJsonObject{{"payload", payload}};
+    }, [send, error](const QJsonObject &result) {
+        if (!result.value("error").toString().isEmpty()) error(result.value("error").toString());
+        else if (!result.value("payload").toObject().isEmpty()) send(result.value("payload").toObject());
+    });
 }
 QStringList AndroidBridge::peerDescriptions(const Profile &p) {
     const QJsonObject obj = read("service-state.json");

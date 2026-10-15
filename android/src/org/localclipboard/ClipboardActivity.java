@@ -35,7 +35,7 @@ public final class ClipboardActivity extends QtActivity {
         handleShare(getIntent());
     }
     @Override public void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); handleShare(intent); }
-    @Override public void onDestroy() { importer.shutdown(); super.onDestroy(); }
+    @Override public void onDestroy() { NativeUi.ownerDestroyed(this); importer.shutdown(); super.onDestroy(); }
     public static void setBootEnabled(Context context, boolean enabled) {
         context.getSharedPreferences("startup", Context.MODE_PRIVATE).edit().putBoolean("enabled", enabled).apply();
     }

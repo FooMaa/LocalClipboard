@@ -8,13 +8,26 @@ command -v adb >/dev/null || { echo "Install Android platform-tools (adb), enabl
 args=()
 if [[ $# == 1 ]]; then args=(-s "$1"); elif [[ $# != 0 ]]; then echo "Usage: install.sh [DEVICE_SERIAL]" >&2; exit 1; fi
 adb ${args[@]+"${args[@]}"} get-state
-installed=$(adb ${args[@]+"${args[@]}"} shell pm path org.localclipboard)
+# pm path can return 1 when the package has not been installed yet.
+installed=$(adb ${args[@]+"${args[@]}"} shell pm path org.localclipboard) || {
+    if [[ -n $installed ]]; then echo "$installed" >&2; exit 1; fi
+}
 if [[ $installed == *package:* ]]; then choose_action; fi
 if [[ ${LC_ACTION:-install} == uninstall ]]; then
     confirm_device_removal
     adb ${args[@]+"${args[@]}"} uninstall org.localclipboard
     exit 0
 fi
-adb ${args[@]+"${args[@]}"} install -r LocalClipboard.apk
+if output=$(adb ${args[@]+"${args[@]}"} install -r LocalClipboard.apk 2>&1); then
+    echo "$output"
+else
+    echo "$output" >&2
+    if [[ $output == *INSTALL_FAILED_UPDATE_INCOMPATIBLE* || $output == *INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES* ]]; then
+        localized "Подпись APK отличается от установленной версии. Регистрация сохранена. Установите APK с прежним ключом подписи. Если ключ потерян: сначала сохраните код подключения из приложения, затем выберите удаление в установщике и установите APK заново. При удалении данные телефона стираются." "The APK signing key differs from the installed version. Your registration is preserved. Use an APK signed with the original key. If that key is lost: save your connection code from the app, select removal in this installer, then install again. Removal erases the phone's app data." >&2
+    elif [[ $output == *INSTALL_FAILED_VERSION_DOWNGRADE* ]]; then
+        localized "Установлена более новая версия. Используйте новый APK; регистрация сохранена." "A newer version is installed. Use a newer APK; your registration is preserved." >&2
+    fi
+    exit 1
+fi
 adb ${args[@]+"${args[@]}"} shell am start -n org.localclipboard/.ClipboardActivity --es localclipboard_language "$LC_LANGUAGE"
 localized "Завершите регистрацию устройства на телефоне." "Complete device registration on the phone."

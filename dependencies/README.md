@@ -54,6 +54,30 @@ app. Release APKs require signing; CI builds an installable debug APK and an adb
 installer ZIP. Device testing is required to verify clipboard, LAN, reboot and
 manufacturer battery-management behavior on your Android version.
 
+### Android development signing
+
+Android only accepts an update signed with the installed application's key.
+CI restores `~/.android/debug.keystore` from a dedicated development-key cache,
+rather than generating a different signature on every runner. Caches can expire
+and branches may have different cache visibility. For a durable key, generate
+one locally (or reuse your existing development keystore):
+
+```sh
+keytool -genkeypair -keystore /private/path/debug.keystore -storepass android -keypass android \
+  -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname 'CN=LocalClipboard Development,O=LocalClipboard,C=US'
+```
+
+Put the base64 encoding of that file into the repository Actions secret
+`ANDROID_DEBUG_KEYSTORE_BASE64`. It must contain alias `androiddebugkey`, with
+store/key passwords `android`, matching Gradle's development signing configuration.
+The secret takes precedence over the cache and is never saved into that cache.
+Keep a private backup of the key; do not commit it. Use a separate release key
+and release signing configuration for public distribution. Fork pull requests
+cannot access repository secrets, so their development APKs may use another key.
+If an earlier CI key has already been lost, it cannot sign an in-place update:
+save the connection code, uninstall once explicitly, then install and rejoin.
+
 ## iOS / iPadOS
 
 Install **full Xcode**, its iOS SDK, and matching Qt iOS / macOS host kits. The
@@ -110,6 +134,12 @@ Android использует общее приложение C++/Qt Widgets из
 ```
 
 Зарегистрируйте телефон в личном профиле и разрешите уведомления. Служба принимает текст, изображения и файлы в фоне; откройте уведомление, чтобы поместить последний элемент в буфер. Android 10+ позволяет читать буфер только приложению в фокусе, поэтому отправляйте текущий буфер из открытого приложения либо используйте **«Поделиться → LocalClipboard»** из другого приложения. Выпускные APK требуют подписи; CI создаёт устанавливаемый отладочный APK и ZIP установщика через adb. На реальном устройстве нужно проверить буфер, локальную сеть, перезагрузку и управление батареей производителем на вашей версии Android.
+
+### Подпись отладочных сборок Android
+
+Android принимает обновление только с тем же ключом подписи, что у установленной версии. CI восстанавливает `~/.android/debug.keystore` из отдельного кеша отладочного ключа вместо новой подписи на каждом запуске. Кеш может быть удалён, а видимость кешей зависит от ветки. Для постоянной подписи создайте ключ локально командой из английского раздела выше или используйте свой существующий отладочный ключ. Сохраните base64-содержимое файла в секрете Actions репозитория `ANDROID_DEBUG_KEYSTORE_BASE64`. Требуются псевдоним `androiddebugkey` и пароли хранилища/ключа `android`, соответствующие конфигурации отладочной подписи Gradle.
+
+Секрет имеет приоритет перед кешем и никогда не сохраняется в этот кеш. Сделайте приватную резервную копию ключа и не коммитьте его. Для публичного распространения используйте отдельный выпускной ключ и конфигурацию подписи. Pull request из форка не имеет доступа к секретам, поэтому его APK может иметь другой ключ. Если прежний ключ CI уже потерян, обновление поверх старой версии невозможно: сохраните код подключения, явно удалите приложение один раз, установите заново и подключитесь к прежнему профилю.
 
 ### iOS / iPadOS
 

@@ -8,7 +8,7 @@ set(CMAKE_AUTOMOC ON)
 if(MSVC)
     add_compile_options(/utf-8)
 endif()
-find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets Multimedia)
+find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets Multimedia Concurrent)
 include(cmake/QtMacOSOpenGL.cmake)
 localclipboard_fix_macos_opengl()
 # Keep the QR implementation local and static on every platform.
@@ -31,7 +31,7 @@ add_library(clipboard_core STATIC
 target_sources(clipboard_core PRIVATE src/I18n.h src/I18n.cpp src/Russian.inc)
 set_target_properties(clipboard_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(clipboard_core PUBLIC src)
-target_link_libraries(clipboard_core PUBLIC Qt6::Core Qt6::Network Qt6::Widgets PRIVATE monocypher)
+target_link_libraries(clipboard_core PUBLIC Qt6::Core Qt6::Network Qt6::Widgets Qt6::Concurrent PRIVATE monocypher)
 add_library(clipboard_qr STATIC src/QrCode.h src/QrCode.cpp src/QrScanner.h src/QrScanner.cpp)
 set_target_properties(clipboard_qr PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(clipboard_qr PUBLIC src)
@@ -81,6 +81,7 @@ if(IOS)
         XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${LOCALCLIPBOARD_IOS_TEAM}"
         XCODE_GENERATE_SCHEME TRUE)
 elseif(ANDROID)
+    target_sources(clipboard_qr PRIVATE src/AndroidUi.h src/AndroidUi.cpp)
     target_sources(LocalClipboard PRIVATE src/AndroidBridge.h src/AndroidBridge.cpp)
     set_target_properties(LocalClipboard PROPERTIES
         QT_ANDROID_PACKAGE_NAME "org.localclipboard"

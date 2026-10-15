@@ -26,6 +26,8 @@ class PackagingTests(unittest.TestCase):
             with executable.open('a') as output:
                 output.write('if sys.argv[0].endswith("dpkg-query") and os.environ.get("LC_TEST_INSTALLED") == "yes": print("install ok installed")\n')
                 output.write('if "pm" in sys.argv and os.environ.get("LC_TEST_INSTALLED") == "yes": print("package:/data/app/clipboard/base.apk")\n')
+                output.write('if "pm" in sys.argv and os.environ.get("LC_TEST_PM_EXIT"): sys.exit(int(os.environ["LC_TEST_PM_EXIT"]))\n')
+                output.write('if "install" in sys.argv and os.environ.get("LC_TEST_INSTALL_ERROR"):\n    print(os.environ["LC_TEST_INSTALL_ERROR"], file=sys.stderr)\n    sys.exit(1)\n')
                 output.write('if "--json-output" in sys.argv:\n    path = sys.argv[sys.argv.index("--json-output") + 1]\n    with open(path, "w") as f: json.dump({"result": {"apps": [{"bundleIdentifier": "org.example.personalclipboard"}]}}, f)\n')
             executable.chmod(0o755)
         self.env['PATH'] = str(binaries) + os.pathsep + self.env['PATH']
@@ -76,6 +78,28 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(['install', '-r', 'LocalClipboard.apk'], self.commands())
         self.assertFalse(any('uninstall' in command for command in self.commands()))
+
+    def test_android_first_install_accepts_missing_package_exit_status(self):
+        script = self.script('android', 'install.sh')
+        self.env['LC_TEST_PM_EXIT'] = '1'
+        result = subprocess.run(['bash', str(script)], env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(['install', '-r', 'LocalClipboard.apk'], self.commands())
+
+    def test_android_failed_upgrade_preserves_registration_and_reports_reason(self):
+        script = self.script('android', 'install.sh')
+        self.env['LC_TEST_INSTALLED'] = 'yes'
+        for error, explanation in [('INSTALL_FAILED_UPDATE_INCOMPATIBLE', 'Подпись APK отличается'),
+                                   ('INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES', 'Подпись APK отличается'),
+                                   ('INSTALL_FAILED_VERSION_DOWNGRADE', 'Установлена более новая версия')]:
+            with self.subTest(error=error):
+                self.env['LC_TEST_INSTALL_ERROR'] = error
+                result = subprocess.run(['bash', str(script)], env=self.env, input='1\n', capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(error, result.stderr)
+                self.assertIn(explanation, result.stderr)
+                self.assertFalse(any('uninstall' in command for command in self.commands()))
+                self.assertFalse(any('am' in command for command in self.commands()))
 
     @unittest.skipUnless(os.uname().sysname == 'Darwin', 'iOS installer host')
     def test_ios_installer_removes_without_qt_or_build(self):

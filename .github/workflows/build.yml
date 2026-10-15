@@ -58,6 +58,11 @@ jobs:
           path: dist/LocalClipboard-*
   android:
     runs-on: ubuntu-22.04
+    concurrency:
+      group: android-signing-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -70,6 +75,26 @@ jobs:
           log-accepted-android-sdk-licenses: 'false'
       - name: Install Android SDK and NDK
         run: sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
+      - name: Restore Android development signing key
+        if: env.ANDROID_DEBUG_KEYSTORE_BASE64 == ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: localclipboard-android-debug-signing-v1
+      - name: Prepare persistent Android development signing key
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          if [[ -n "$ANDROID_DEBUG_KEYSTORE_BASE64" ]]; then
+            printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          elif [[ ! -s "$HOME/.android/debug.keystore" ]]; then
+            keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname 'CN=LocalClipboard Development,O=LocalClipboard,C=US'
+            echo '::warning::Created a new development signing key. Back it up in ANDROID_DEBUG_KEYSTORE_BASE64 for updates that survive cache eviction.'
+          fi
+          chmod 600 "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'

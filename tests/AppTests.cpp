@@ -4,6 +4,7 @@
 #include "I18n.h"
 #include "Ui.h"
 #include "QrCode.h"
+#include "Async.h"
 #include <QListWidget>
 #include <QScroller>
 #include <QScrollBar>
@@ -25,6 +26,10 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QTest>
+#include <QSemaphore>
+#include <QThread>
+#include <QSignalSpy>
+#include <memory>
 #include <QUuid>
 
 class AppTests final : public QObject {
@@ -34,6 +39,34 @@ private slots:
     void initTestCase() {
         QVERIFY(preferences.isValid());
         I18n::initialize("en", preferences.path()); Ui::initialize();
+    }
+    void asynchronousWorkKeepsEventLoopResponsiveAndReturnsToOwner() {
+        auto gate = std::make_shared<QSemaphore>();
+        bool returned = false;
+        QThread *worker = nullptr;
+        QThread *delivery = nullptr;
+        Async::run(this, [gate] {
+            gate->acquire();
+            return QPair<int, QThread *>(42, QThread::currentThread());
+        }, [&](const QPair<int, QThread *> &result) {
+            returned = result.first == 42; worker = result.second; delivery = QThread::currentThread();
+        });
+        QTimer::singleShot(0, this, [gate] { gate->release(); });
+        QTRY_VERIFY(returned);
+        QCOMPARE(delivery, thread()); QVERIFY(worker != delivery);
+
+        auto *owner = new QObject;
+        auto blocked = std::make_shared<QSemaphore>();
+        auto finished = std::make_shared<QSemaphore>();
+        bool deliveredAfterDestruction = false;
+        Async::run(owner, [blocked, finished] {
+            blocked->acquire(); finished->release(); return 1;
+        }, [&](int) { deliveredAfterDestruction = true; });
+        delete owner;
+        blocked->release();
+        QVERIFY(finished->tryAcquire(1, 2000));
+        QTest::qWait(20);
+        QVERIFY(!deliveredAfterDestruction);
     }
     void languageIsPersistedAndUpdatesOpenDialog() {
         RegistrationDialog dialog(Profile::load());
@@ -99,6 +132,16 @@ private slots:
                 if (label->isVisible() && !label->text().isEmpty())
                     QVERIFY2(label->height() >= label->heightForWidth(label->width()), qPrintable(label->text()));
         }
+    }
+    void unchangedPeersDoNotResetTheListDuringScrolling() {
+        Profile profile; profile.create();
+        ClipboardSync window(profile);
+        auto *peers = window.findChild<QListWidget *>(); QVERIFY(peers);
+        auto *engine = window.findChild<SyncEngine *>(); QVERIFY(engine);
+        QSignalSpy reset(peers->model(), &QAbstractItemModel::modelReset);
+        QVERIFY(QMetaObject::invokeMethod(engine, "peersChanged", Qt::DirectConnection));
+        QVERIFY(QMetaObject::invokeMethod(engine, "peersChanged", Qt::DirectConnection));
+        QCOMPARE(reset.count(), 0);
     }
     void connectionQrRoundTripAndInvalidInput() {
         Profile profile; profile.create();

@@ -19,8 +19,14 @@
 #include <QVideoFrame>
 #include <QVideoSink>
 #include <QTimer>
+#ifdef Q_OS_ANDROID
+#include "AndroidUi.h"
+#endif
 
 QString QrScanner::scan(QWidget *parent) {
+#ifdef Q_OS_ANDROID
+    return AndroidUi::scanQr(parent);
+#else
     QDialog dialog(parent); Ui::title(&dialog, "Scan connection QR code");
     const auto form = Ui::form(&dialog, "Scan connection QR code", "Point the camera at the QR code on your other device. Nothing is saved until you confirm registration.");
     auto *preview = new QLabel(&dialog); preview->setAlignment(Qt::AlignCenter);
@@ -112,4 +118,5 @@ QString QrScanner::scan(QWidget *parent) {
     QTimer::singleShot(0, start, &QPushButton::click);
     dialog.exec(); camera.stop(); capture.setCamera(nullptr); capture.setVideoSink(nullptr);
     return invitation;
+#endif
 }

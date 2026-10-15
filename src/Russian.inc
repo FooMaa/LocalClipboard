@@ -161,3 +161,4 @@
     {"Save QR image…", "Сохранить QR-код…"},
     {"Save QR image", "Сохранение QR-кода"},
     {"Could not save the QR image.", "Не удалось сохранить QR-код."},
+    {"Preparing files…", "Подготовка файлов…"},

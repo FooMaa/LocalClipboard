@@ -18,6 +18,10 @@
 #include <QTimer>
 #include <QPointer>
 #include <QKeyEvent>
+#include <QScrollerProperties>
+#ifdef Q_OS_ANDROID
+#include "AndroidUi.h"
+#endif
 
 namespace {
 class TouchComboBox final : public QComboBox {
@@ -26,6 +30,20 @@ public:
     void showPopup() override {
         if (!Ui::touchMode()) { QComboBox::showPopup(); return; }
         qApp->inputMethod()->hide();
+#ifdef Q_OS_ANDROID
+        QStringList items;
+        QList<bool> enabled;
+        for (int i = 0; i < count(); ++i) {
+            items.append(itemText(i));
+            enabled.append(model()->flags(model()->index(i, modelColumn())) & Qt::ItemIsEnabled);
+        }
+        const QPointer<TouchComboBox> self(this);
+        const int selected = AndroidUi::choose(this, accessibleName(), items, enabled, currentIndex());
+        if (!self) return;
+        if (selected >= 0) setCurrentIndex(selected);
+        QComboBox::hidePopup();
+        return;
+#endif
         QDialog dialog(window()); dialog.setObjectName("touchChoices");
         Ui::prepareWindow(&dialog); dialog.setWindowTitle(accessibleName());
         auto *layout = new QVBoxLayout(&dialog);
@@ -113,18 +131,29 @@ void Ui::showWindow(QWidget *widget) {
 void Ui::enableTouchScroll(QScrollArea *scroll) {
     if (!touchMode()) return;
     QScroller::grabGesture(scroll->viewport(), QScroller::TouchGesture);
+    auto *scroller = QScroller::scroller(scroll->viewport());
+    auto properties = scroller->scrollerProperties();
+    properties.setScrollMetric(QScrollerProperties::FrameRate, QScrollerProperties::Fps60);
+    properties.setScrollMetric(QScrollerProperties::DragStartDistance, 0.003);
+    properties.setScrollMetric(QScrollerProperties::HorizontalOvershootPolicy, QScrollerProperties::OvershootAlwaysOff);
+    properties.setScrollMetric(QScrollerProperties::VerticalOvershootPolicy, QScrollerProperties::OvershootAlwaysOff);
+    scroller->setScrollerProperties(properties);
     // Bring the focused editor back into view after Android resizes for the IME.
     QObject::connect(qApp, &QApplication::focusChanged, scroll, [scroll](QWidget *, QWidget *focused) {
-        if (!focused || !scroll->isAncestorOf(focused)) return;
+        if (!qobject_cast<QLineEdit *>(focused) || !scroll->isAncestorOf(focused)) return;
         QPointer<QWidget> target(focused);
         QTimer::singleShot(250, scroll, [scroll, target] {
-            if (target) scroll->ensureWidgetVisible(target, 12, 24);
+            if (target && target->hasFocus() && QScroller::scroller(scroll->viewport())->state() == QScroller::Inactive)
+                scroll->ensureWidgetVisible(target, 12, 24);
         });
     });
     QObject::connect(qApp->inputMethod(), &QInputMethod::keyboardRectangleChanged, scroll, [scroll] {
         QPointer<QWidget> focused(qApp->focusWidget());
-        if (focused && scroll->isAncestorOf(focused))
-            QTimer::singleShot(0, scroll, [scroll, focused] { if (focused) scroll->ensureWidgetVisible(focused, 12, 24); });
+        if (qobject_cast<QLineEdit *>(focused.data()) && scroll->isAncestorOf(focused))
+            QTimer::singleShot(0, scroll, [scroll, focused] {
+                if (focused && focused->hasFocus() && QScroller::scroller(scroll->viewport())->state() == QScroller::Inactive)
+                    scroll->ensureWidgetVisible(focused, 12, 24);
+            });
     });
 }
 QComboBox *Ui::comboBox(QWidget *parent) {

@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QMainWindow>
 #include <QUrl>
+#include <functional>
 class QCheckBox;
 class QCloseEvent;
 class QLabel;
@@ -28,6 +29,7 @@ private:
     void log(const QString &message);
     void startEngine();
     void networkSettings();
+    void pollAndroidInbox();
     Profile m_profile;
     SyncEngine *m_engine = nullptr;
     QListWidget *m_peers = nullptr;
@@ -38,4 +40,8 @@ private:
     QSystemTrayIcon *m_tray = nullptr;
     QString m_lastHash;
     bool m_applying = false;
+    bool m_loadingInbox = false;
+    bool m_preparingSend = false;
+    QStringList m_visiblePeers;
+    std::function<void()> m_pendingApply;
 };

@@ -4,6 +4,7 @@
 #include "Registration.h"
 #include "I18n.h"
 #include "Ui.h"
+#include "Async.h"
 #include "Uninstall.h"
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -29,6 +30,8 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
+#include <QImage>
+#include <QPixmap>
 #include <QStatusBar>
 #include <QStyle>
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
@@ -36,6 +39,7 @@
 #endif
 #include <QTimer>
 #include <QVBoxLayout>
+#include <memory>
 #ifdef Q_OS_ANDROID
 #include "AndroidBridge.h"
 #endif
@@ -125,9 +129,25 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
 #else
         const QList<QUrl> urls = QFileDialog::getOpenFileUrls(this, I18n::text("Select files or photos"));
         if (urls.isEmpty()) return;
+#ifdef Q_OS_ANDROID
+        if (m_preparingSend) return;
+        m_preparingSend = true;
+        log("Preparing files…");
+        const QString group = m_profile.groupId();
+        Async::run(this, [urls] {
+            QString error;
+            const auto payload = ClipboardPayload::fromFiles(urls, &error);
+            return QPair<QJsonObject, QString>(payload, error);
+        }, [this, group](const QPair<QJsonObject, QString> &result) {
+            m_preparingSend = false;
+            if (group != m_profile.groupId()) return;
+            if (!result.first.isEmpty()) sendPayload(result.first); else log(result.second);
+        });
+#else
         QString error;
         const QJsonObject payload = ClipboardPayload::fromFiles(urls, &error);
         if (!payload.isEmpty()) sendPayload(payload); else log(error);
+#endif
 #endif
     });
     connect(pair, &QPushButton::clicked, this, [this] { showInvitation(m_profile, this); });
@@ -198,15 +218,22 @@ ClipboardSync::ClipboardSync(const Profile &profile, QWidget *parent) : QMainWin
     }
 #elif defined(Q_OS_ANDROID)
     connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
-        if (state == Qt::ApplicationActive) AndroidBridge::consumeInbox(m_profile, [this](const QJsonObject &p) { apply(p); });
+        if (state == Qt::ApplicationActive) {
+            auto pending = std::move(m_pendingApply); m_pendingApply = {};
+            if (pending) pending();
+            pollAndroidInbox();
+        }
     });
     auto *poll = new QTimer(this);
     connect(poll, &QTimer::timeout, this, [this] {
-        refresh();
         if (QApplication::applicationState() != Qt::ApplicationActive) return;
+        refresh();
         if (!m_pause->isChecked()) {
-            AndroidBridge::consumeInbox(m_profile, [this](const QJsonObject &p) { apply(p); });
-            AndroidBridge::consumeShares([this](const QJsonObject &p) { sendPayload(p); }, [this](const QString &e) { log(e); });
+            pollAndroidInbox();
+            const QString group = m_profile.groupId();
+            AndroidBridge::consumeShares(this, [this, group](const QJsonObject &p) {
+                if (m_profile.groupId() == group) sendPayload(p);
+            }, [this](const QString &e) { log(e); });
         }
     });
     poll->start(1000);
@@ -253,6 +280,36 @@ void ClipboardSync::sendClipboard(bool explicitSend) {
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     if (QApplication::applicationState() != Qt::ApplicationActive) return;
 #endif
+#ifdef Q_OS_ANDROID
+    if (m_preparingSend) return;
+    const QMimeData *source = QApplication::clipboard()->mimeData();
+    if (!source) return;
+    // Access the system clipboard on Qt's GUI thread; encode images/read files on a worker.
+    const auto urls = source->urls();
+    const QString text = source->text(), html = source->html();
+    QImage image;
+    if (urls.isEmpty() && source->hasImage()) {
+        image = qvariant_cast<QImage>(source->imageData());
+        if (image.isNull()) image = qvariant_cast<QPixmap>(source->imageData()).toImage();
+    }
+    m_preparingSend = true;
+    const QString group = m_profile.groupId();
+    Async::run(this, [urls, text, html, image] {
+        QMimeData snapshot;
+        if (!urls.isEmpty()) snapshot.setUrls(urls);
+        if (!text.isEmpty()) snapshot.setText(text);
+        if (!html.isEmpty()) snapshot.setHtml(html);
+        if (!image.isNull()) snapshot.setImageData(image);
+        QString error;
+        const auto payload = ClipboardPayload::capture(&snapshot, &error);
+        return QPair<QJsonObject, QString>(payload, error);
+    }, [this, group](const QPair<QJsonObject, QString> &result) {
+        m_preparingSend = false;
+        if (m_profile.groupId() != group) return;
+        if (!result.first.isEmpty()) sendPayload(result.first);
+        else if (!result.second.isEmpty()) log(result.second);
+    });
+#else
     QString error;
     const QJsonObject payload = ClipboardPayload::capture(QApplication::clipboard()->mimeData(), &error);
     if (payload.isEmpty()) { m_lastHash.clear(); if (!error.isEmpty()) log(error); return; }
@@ -260,19 +317,55 @@ void ClipboardSync::sendClipboard(bool explicitSend) {
     if (!explicitSend && hash == m_lastHash) return;
     m_lastHash = hash;
     sendPayload(payload);
+#endif
 }
 void ClipboardSync::sendPayload(const QJsonObject &payload) {
     if (m_pause->isChecked()) return;
 #ifdef Q_OS_ANDROID
-    QString error;
-    if (!AndroidBridge::queueOutgoing(m_profile, payload, &error)) log(error);
-    else log("Queued " + ClipboardPayload::description(payload));
+    const QString description = ClipboardPayload::description(payload);
+    AndroidBridge::queueOutgoing(m_profile, payload, this, [this, description](const QString &error) {
+        log(error.isEmpty() ? "Queued " + description : error);
+    });
 #else
     if (!m_engine || !m_engine->send(payload)) log("No registered device is online, or synchronization is paused.");
 #endif
 }
 void ClipboardSync::apply(const QJsonObject &payload) {
     if (m_pause->isChecked()) return;
+#ifdef Q_OS_ANDROID
+    struct Prepared { QString hash, description, error, text, html; QList<QUrl> urls; bool valid = false; };
+    const QString directory = QDir(Profile::dataDirectory()).filePath("received");
+    const QString group = m_profile.groupId();
+    const QString description = ClipboardPayload::description(payload);
+    m_applying = true;
+    Async::run(this, [payload, directory, description] {
+        Prepared result;
+        result.hash = ClipboardPayload::hash(payload);
+        result.description = description;
+        std::unique_ptr<QMimeData> mime(ClipboardPayload::materialize(payload, directory, &result.error));
+        if (mime) {
+            result.valid = true; result.urls = mime->urls(); result.text = mime->text(); result.html = mime->html();
+        }
+        return result;
+    }, [this, group](const Prepared &result) {
+        auto finish = [this, group, result] {
+            m_applying = false;
+            if (m_profile.groupId() != group || m_pause->isChecked()) return;
+            if (!result.valid) { AndroidBridge::acknowledgeInbox(); log(result.error); return; }
+            m_lastHash = result.hash;
+            if (!result.urls.isEmpty()) AndroidBridge::copyFiles(result.urls);
+            else {
+                auto *mime = new QMimeData;
+                mime->setText(result.text); if (!result.html.isEmpty()) mime->setHtml(result.html);
+                QApplication::clipboard()->setMimeData(mime);
+            }
+            AndroidBridge::acknowledgeInbox();
+            log("Applied " + result.description);
+        };
+        if (QApplication::applicationState() == Qt::ApplicationActive) finish();
+        else m_pendingApply = std::move(finish);
+    });
+#else
     const QString hash = ClipboardPayload::hash(payload);
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     if (hash == m_lastHash) return;
@@ -282,11 +375,7 @@ void ClipboardSync::apply(const QJsonObject &payload) {
     if (!mime) { log(error); return; }
     m_applying = true;
     m_lastHash = hash;
-#ifdef Q_OS_ANDROID
-    if (mime->hasUrls()) {
-        AndroidBridge::copyFiles(mime->urls()); delete mime;
-    } else QApplication::clipboard()->setMimeData(mime);
-#elif defined(Q_OS_IOS)
+#ifdef Q_OS_IOS
     if (mime->hasUrls()) { IOSBridge::copyFiles(mime->urls()); delete mime; }
     else QApplication::clipboard()->setMimeData(mime);
 #else
@@ -296,14 +385,29 @@ void ClipboardSync::apply(const QJsonObject &payload) {
 #endif
     m_applying = false;
     log("Applied " + ClipboardPayload::description(payload));
+#endif
+}
+void ClipboardSync::pollAndroidInbox() {
+#ifdef Q_OS_ANDROID
+    if (m_loadingInbox || m_applying || m_pause->isChecked()) return;
+    m_loadingInbox = true;
+    const QString group = m_profile.groupId();
+    AndroidBridge::consumeInbox(m_profile, this, [this, group](const QJsonObject &payload) {
+        m_loadingInbox = false;
+        if (group == m_profile.groupId() && !payload.isEmpty()) apply(payload);
+    });
+#endif
 }
 void ClipboardSync::refresh() {
-    m_peers->clear();
+    QStringList peers;
 #ifdef Q_OS_ANDROID
-    m_peers->addItems(AndroidBridge::peerDescriptions(m_profile));
+    peers = AndroidBridge::peerDescriptions(m_profile);
 #else
-    if (m_engine) m_peers->addItems(m_engine->peerDescriptions());
+    if (m_engine) peers = m_engine->peerDescriptions();
 #endif
+    if (peers != m_visiblePeers) {
+        m_visiblePeers = peers; m_peers->clear(); m_peers->addItems(peers);
+    }
     m_empty->setVisible(m_peers->count() == 0);
     m_status->setText(I18n::text("%1 registered device(s) online · %2").arg(m_peers->count())
         .arg(I18n::text(m_pause->isChecked() ? "paused" : "active")));

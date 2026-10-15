@@ -34,7 +34,9 @@ connection code; share it only with your own devices. Other QR formats are ignor
 
 Android and iOS forms fill the available screen. Scroll the registration and
 settings pages with a swipe; opening the keyboard keeps the focused input visible.
-Mobile choice fields open a separate list with large touch targets.
+Android choice fields use native single-choice dialogs. Its QR scanner uses a
+native camera preview with decoding off the UI thread; images can also be selected.
+On iOS, choice fields open a separate list with large touch targets.
 
 ## Background operation and autostart
 
@@ -167,7 +169,10 @@ Linux filenames use the host architecture. APK is also directly installable on t
 phone; the separate installer ZIP automates USB installation from a computer with
 adb. CI is configured to build all five platforms, test the desktop core and verify all ten
 outputs before publishing a combined artifact with checksums. Android CI builds an
-installable debug APK; distribution release APKs need a stable signing key. macOS
+installable debug APK. Its development signing key is cached between builds;
+set the `ANDROID_DEBUG_KEYSTORE_BASE64` repository secret to preserve it independently
+of cache eviction. See [Android signing setup](dependencies/README.md#android-development-signing).
+Distribution release APKs need a stable release signing key. macOS
 artifacts are ad-hoc signed unless Apple signing identities are supplied; public
 Gatekeeper distribution additionally requires Apple signing and notarization.
 The iOS CI package is **unsigned**. Install on your own phone through the supplied
@@ -243,7 +248,7 @@ for regeneration after changing the SVG.
 
 Если камеры нет, используйте **«Сохранить QR-код…»** и **«Считать QR из изображения…»** либо введите код вручную. QR содержит тот же секрет профиля, что и код подключения: передавайте его только своим устройствам. QR-коды других форматов игнорируются.
 
-На Android и iOS формы занимают доступный экран. Страницы регистрации и настроек прокручиваются свайпом; при открытии клавиатуры поле ввода остаётся в видимой области. Варианты в выпадающих полях выбираются в отдельном списке с крупными строками.
+На Android и iOS формы занимают доступный экран. Страницы регистрации и настроек прокручиваются свайпом; при открытии клавиатуры поле ввода остаётся в видимой области. На Android выбор значений выполняется через системные диалоги. QR-сканер использует нативный предпросмотр камеры и распознавание в рабочем потоке; также можно выбрать изображение. На iOS варианты выбираются в отдельном списке с крупными строками.
 
 ### Фоновая работа и автозапуск
 
@@ -310,7 +315,7 @@ for regeneration after changing the SVG.
 | Android | `LocalClipboard-android-package.apk` | `LocalClipboard-android-installer.zip` — APK и скрипты установки через adb с открытием регистрации |
 | iOS/iPadOS | `LocalClipboard-ios-package.zip` — `.app` для устройства arm64 | `LocalClipboard-ios-installer.zip` — исходники и скрипт сборки, подписи и установки через Xcode |
 
-Имена файлов Linux зависят от архитектуры компьютера. APK можно установить непосредственно на телефоне; отдельный ZIP установщика автоматизирует установку через USB с компьютера с adb. CI настроен на сборку всех пяти платформ, проверку ядра приложения для компьютеров и всех десяти результатов перед публикацией общего архива с контрольными суммами. Для Android CI собирает устанавливаемый отладочный APK; выпускной APK для распространения требует постоянного ключа подписи. Артефакты macOS получают подпись ad-hoc, если не заданы сертификаты Apple; публичное распространение с проверкой Gatekeeper дополнительно требует подписи Apple и нотариализации.
+Имена файлов Linux зависят от архитектуры компьютера. APK можно установить непосредственно на телефоне; отдельный ZIP установщика автоматизирует установку через USB с компьютера с adb. CI настроен на сборку всех пяти платформ, проверку ядра приложения для компьютеров и всех десяти результатов перед публикацией общего архива с контрольными суммами. Для Android CI собирает устанавливаемый отладочный APK и кеширует ключ между сборками. Секрет репозитория `ANDROID_DEBUG_KEYSTORE_BASE64` позволяет сохранить подпись независимо от удаления кеша; см. [настройку подписи Android](dependencies/README.md#подпись-отладочных-сборок-android). Выпускной APK для распространения требует постоянного выпускного ключа. Артефакты macOS получают подпись ad-hoc, если не заданы сертификаты Apple; публичное распространение с проверкой Gatekeeper дополнительно требует подписи Apple и нотариализации.
 
 Пакет iOS из CI **не подписан**. Устанавливайте его на свой телефон через прилагаемый установщик для Xcode, выбрав свою Apple Team и уникальный Bundle ID. На Mac для установки нужны Xcode и комплект Qt для iOS; это не IPA для App Store. Можно использовать Personal Team без App Groups и разрешения на multicast. См. [инструкцию установки iOS](packaging/ios/README.md#русская-версия).
 

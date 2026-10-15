@@ -34,6 +34,8 @@
             <meta-data android:name="android.app.lib_name" android:value="-- %%INSERT_APP_LIB_NAME%% --"/>
             <meta-data android:name="android.app.arguments" android:value="-- %%INSERT_APP_ARGUMENTS%% --"/>
         </activity>
+        <activity android:name="org.localclipboard.QrScannerActivity" android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar"/>
         <service android:name="org.localclipboard.ClipboardService" android:process=":sync"
             android:exported="false" android:stopWithTask="false" android:foregroundServiceType="connectedDevice">
             <meta-data android:name="android.app.lib_name" android:value="-- %%INSERT_APP_LIB_NAME%% --"/>
