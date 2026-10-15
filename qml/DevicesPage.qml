@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Controls as Controls
 import "Theme.js" as Theme
 ScrollPage {
     id: page
@@ -35,7 +36,8 @@ ScrollPage {
     }
     Dialog {
         id: accessDialog
-        parent: Overlay.overlay
+        objectName: "deviceAccessDialog"
+        parent: Controls.Overlay.overlay
         property string deviceId
         property string deviceName
         property bool revoke

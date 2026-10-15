@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import "Theme.js" as Theme
 ColumnLayout {
@@ -49,7 +50,8 @@ ColumnLayout {
     }
     Dialog {
         id: clearDialog
-        parent: Overlay.overlay
+        objectName: "clearHistoryDialog"
+        parent: Controls.Overlay.overlay
         anchors.centerIn: parent; width: Math.min(page.width - 32, 440); modal: true; padding: 24
         background: Rectangle { radius: 24; color: Theme.surface; border.color: Theme.line }
         contentItem: Column {

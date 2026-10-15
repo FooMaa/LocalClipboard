@@ -82,6 +82,28 @@ private slots:
         }
         QCOMPARE(warnings.size(), 0);
     }
+    void confirmationDialogsUseTheWindowOverlay() {
+        AppController controller(profile()); QQmlApplicationEngine engine;
+        configureAppEngine(engine, controller);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        engine.load(QUrl("qrc:/app/Main.qml"));
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first()); QVERIFY(window);
+        window->resize(412, 740); window->show();
+        for (const auto &name : {"deviceAccessDialog", "clearHistoryDialog"}) {
+            auto *dialog = window->findChild<QObject *>(name); QVERIFY(dialog);
+            auto *overlay = qvariant_cast<QQuickItem *>(dialog->property("parent")); QVERIFY(overlay);
+            QCOMPARE(overlay->window(), window);
+            QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
+            QTRY_VERIFY(dialog->property("visible").toBool());
+            QTRY_COMPARE(overlay->width(), window->width());
+            QTRY_COMPARE(overlay->height(), window->height());
+            QVERIFY(dialog->property("modal").toBool());
+            QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+            QTRY_VERIFY(!dialog->property("visible").toBool());
+        }
+        QCOMPARE(warnings.size(), 0);
+    }
     void exportInterfaceScreenshots() {
         // Diagnostic images are exercised separately on the CI capture host.
         // Layout, translation and input checks run on every host without capture.
@@ -264,7 +286,10 @@ private slots:
         AppController controller(owner);
         auto *engine = controller.findChild<SyncEngine *>(); QVERIFY(engine);
         QUdpSocket discovery;
-        discovery.writeDatagram(SecureProtocol::announcement(phone, 45872), QHostAddress::LocalHost, engine->discoveryPort());
+        // Discovery sockets share the port with other app instances. Broadcast
+        // reaches every listener; localhost unicast can be consumed by another one.
+        const auto announcement = SecureProtocol::announcement(phone, 45872);
+        QCOMPARE(discovery.writeDatagram(announcement, QHostAddress::Broadcast, engine->discoveryPort()), qint64(announcement.size()));
         QTRY_COMPARE(controller.devices().size(), 1);
         QVERIFY(controller.administrator()); QCOMPARE(controller.accessState(), QStringLiteral("approved"));
         QVERIFY(!controller.devices().first().toMap().value("approved").toBool());
