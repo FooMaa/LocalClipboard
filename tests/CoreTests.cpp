@@ -66,8 +66,13 @@ private slots:
         QVERIFY(!p.historyEnabled); QCOMPARE(LocalHistory::entries(p).size(), 0);
         QCOMPARE(ExchangeStore::entries(p).size(), 1);
         QCOMPARE(ExchangeStore::item(p, id).value("payload").toObject(), text("private shared note"));
-        QFile file(QDir(Profile::dataDirectory()).filePath("exchange/" + id)); QVERIFY(file.open(QIODevice::ReadOnly));
-        QVERIFY(!file.readAll().contains("private shared note"));
+        const QDir directory(QDir(Profile::dataDirectory()).filePath("exchange"));
+        {
+            // Windows cannot prune this entry while the test keeps its file open.
+            QFile file(directory.filePath(id));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            QVERIFY(!file.readAll().contains("private shared note"));
+        }
         Profile other = profile(); QVERIFY(other.join(p.invitation()));
         QVERIFY(ExchangeStore::entries(other).isEmpty());
         QVERIFY(ExchangeStore::item(p, "../profile.json").isEmpty());
@@ -77,6 +82,7 @@ private slots:
             QTest::qWait(1);
         }
         QCOMPARE(ExchangeStore::entries(p).size(), ExchangeStore::MaxItems);
+        QCOMPARE(directory.entryList(QDir::Files | QDir::NoSymLinks).size(), ExchangeStore::MaxItems);
         QVERIFY(ExchangeStore::item(p, id).isEmpty());
         ExchangeStore::clear(); QVERIFY(ExchangeStore::entries(p).isEmpty());
     }
