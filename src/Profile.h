@@ -15,6 +15,7 @@ struct Profile {
     QByteArray deviceSecret, authoritySeed, authorityPublic;
     QJsonObject registry;
     bool sendingEnabled = true, receivingEnabled = true, historyEnabled = false;
+    bool automaticClipboard = false;
     qint64 pauseUntil = 0;
     int historyDays = 7, historyMiB = 16;
     QStringList excludedApplications;

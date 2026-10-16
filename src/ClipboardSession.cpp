@@ -5,6 +5,7 @@
 #include "SyncEngine.h"
 #include "DeviceAccess.h"
 #include "LocalHistory.h"
+#include "ExchangeStore.h"
 #include "SourceApplication.h"
 #include <QDateTime>
 #include <QFileInfo>
@@ -30,14 +31,9 @@ ClipboardSession::ClipboardSession(const Profile &profile, QObject *parent)
     : QObject(parent), m_profile(profile) {
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     connect(QApplication::clipboard(), &QClipboard::dataChanged, this, [this] { sendClipboard(false); });
-    QString ignored;
-    const auto initial = ClipboardPayload::capture(QApplication::clipboard()->mimeData(), &ignored);
-    if (!initial.isEmpty()) m_lastHash = ClipboardPayload::hash(initial);
 #elif defined(Q_OS_ANDROID)
     connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
         if (state == Qt::ApplicationActive) {
-            auto pending = std::move(m_pendingApply); m_pendingApply = {};
-            if (pending) pending();
             if (AndroidBridge::takeCopyRequest()) copyReceivedClipboard();
         }
     });
@@ -70,7 +66,7 @@ ClipboardSession::ClipboardSession(const Profile &profile, QObject *parent)
         if (urls.isEmpty()) return;
         const auto payload = ClipboardPayload::fromFiles(urls, &error);
         if (payload.isEmpty()) { report(error); return; }
-        if (m_engine->send(payload)) {
+        if (sendPayload(payload)) {
             IOSBridge::clearQueue(m_profile);
             report("Sending imported files. Copies remain under Imported files for retry.");
         }
@@ -100,7 +96,6 @@ void ClipboardSession::replaceProfile(const Profile &profile) {
     m_incomingId.clear(); m_incomingSender.clear();
     LocalHistory::prune(m_profile);
     m_sharedPayload = {}; emit shareChanged();
-    if (m_pendingApply) { m_pendingApply = {}; m_applying = false; }
     emit profileChanged();
     startEngine();
 }
@@ -178,11 +173,24 @@ bool ClipboardSession::pendingClipboard() const {
 #endif
 }
 void ClipboardSession::copyReceivedClipboard() {
-#ifdef Q_OS_ANDROID
-    if (m_profile.isPaused()) { report("Resume synchronization to copy received content."); return; }
-    if (!pendingClipboard()) { report("No received content is waiting."); return; }
-    pollAndroidInbox();
-#endif
+    const auto profile = m_profile;
+    copyPayload([profile] {
+        for (const auto &entry : ExchangeStore::entries(profile)) {
+            const auto item = entry.toMap();
+            if (!item.value("outgoing").toBool()) return ExchangeStore::item(profile, item.value("id").toString());
+        }
+        return QJsonObject();
+    });
+}
+bool ClipboardSession::sendText(const QString &text) {
+    const QJsonObject payload{{"kind", "text"}, {"text", text}, {"html", ""}};
+    QString error;
+    if (!ClipboardPayload::validate(payload, &error)) { report(error); return false; }
+    return sendPayload(payload);
+}
+void ClipboardSession::copyExchangeItem(const QString &id) {
+    const auto profile = m_profile;
+    copyPayload([profile, id] { return ExchangeStore::item(profile, id); });
 }
 void ClipboardSession::refresh() {
 #ifdef Q_OS_ANDROID
@@ -236,7 +244,7 @@ void ClipboardSession::startEngine() {
     refresh();
 }
 void ClipboardSession::sendClipboard(bool explicitSend) {
-    if (m_applying || m_profile.isPaused() || !m_profile.sendingEnabled) return;
+    if (m_applying || m_profile.isPaused() || !m_profile.sendingEnabled || (!explicitSend && !m_profile.automaticClipboard)) return;
     if (!explicitSend && SourceApplication::supported()) {
         const auto source = SourceApplication::current();
         for (const auto &excluded : m_profile.excludedApplications)
@@ -284,88 +292,45 @@ void ClipboardSession::sendClipboard(bool explicitSend) {
     sendPayload(payload);
 #endif
 }
-void ClipboardSession::sendPayload(const QJsonObject &payload) {
-    if (m_profile.isPaused() || !m_profile.sendingEnabled) return;
+bool ClipboardSession::sendPayload(const QJsonObject &payload) {
+    if (m_profile.isPaused() || !m_profile.sendingEnabled) return false;
+#ifndef Q_OS_ANDROID
+    if (!m_engine || !m_engine->send(payload)) {
+        report("No registered device is online, or synchronization is paused."); return false;
+    }
+#endif
     remember(payload);
+    const auto profile = m_profile; const auto revision = m_revision;
 #ifdef Q_OS_ANDROID
     const QString description = ClipboardPayload::description(payload);
-    AndroidBridge::queueOutgoing(m_profile, payload, this, [this, description](const QString &error) {
+    AndroidBridge::queueOutgoing(m_profile, payload, this, [this, profile, revision, payload, description](const QString &error) {
+        if (revision != m_revision) return;
         report(error.isEmpty() ? "Queued " + description : error);
+        if (!error.isEmpty()) return;
+        Async::run(this, [profile, payload] { return ExchangeStore::record(profile, payload, {}, {}, true); },
+            [this, revision](const QString &) { if (revision == m_revision) emit exchangeChanged(); });
     });
 #else
-    if (!m_engine || !m_engine->send(payload)) report("No registered device is online, or synchronization is paused.");
+    Async::run(this, [profile, payload] { return ExchangeStore::record(profile, payload, {}, {}, true); },
+        [this, revision](const QString &) { if (revision == m_revision) emit exchangeChanged(); });
 #endif
+    return true;
 }
 void ClipboardSession::apply(const QJsonObject &payload) {
     if (m_profile.isPaused() || !m_profile.receivingEnabled) { completeReceived("failed", "Receiving is disabled on this device."); return; }
-#ifdef Q_OS_ANDROID
-    struct Prepared { QString hash, description, error, text, html; QList<QUrl> urls; bool valid = false; };
-    const QString directory = QDir(Profile::dataDirectory()).filePath("received");
-    const quint64 revision = m_revision;
-    const QString description = ClipboardPayload::description(payload);
-    m_applying = true;
-    Async::run(this, [payload, directory, description] {
-        Prepared result;
-        result.hash = ClipboardPayload::hash(payload);
-        result.description = description;
-        std::unique_ptr<QMimeData> mime(ClipboardPayload::materialize(payload, directory, &result.error));
-        if (mime) {
-            result.valid = true; result.urls = mime->urls(); result.text = mime->text(); result.html = mime->html();
-        }
-        return result;
-    }, [this, revision](const Prepared &result) {
-        auto finish = [this, revision, result] {
-            m_applying = false;
-            if (m_revision != revision || m_profile.isPaused() || !m_profile.receivingEnabled) return;
-            if (!result.valid) { AndroidBridge::acknowledgeInbox("failed", result.error); report(result.error); return; }
-            m_lastHash = result.hash;
-            if (!result.urls.isEmpty()) AndroidBridge::copyFiles(result.urls);
-            else {
-                auto *mime = new QMimeData;
-                mime->setText(result.text); if (!result.html.isEmpty()) mime->setHtml(result.html);
-                QApplication::clipboard()->setMimeData(mime);
-            }
-            AndroidBridge::acknowledgeInbox("copied");
-            emit historyChanged();
-            report("Applied " + result.description);
-        };
-        if (QApplication::applicationState() == Qt::ApplicationActive) finish();
-        else m_pendingApply = std::move(finish);
-    });
-#else
-    const QString hash = ClipboardPayload::hash(payload);
-#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
-    if (hash == m_lastHash) { completeReceived("copied"); return; }
-#endif
-    QString error;
-    QMimeData *mime = ClipboardPayload::materialize(payload, QDir(Profile::dataDirectory()).filePath("received"), &error);
-    if (!mime) { completeReceived("failed", "Could not store received content."); report(error); return; }
-    m_applying = true;
-    m_lastHash = hash;
-#ifdef Q_OS_IOS
-    if (mime->hasUrls()) { IOSBridge::copyFiles(mime->urls()); delete mime; }
-    else QApplication::clipboard()->setMimeData(mime);
-#else
-    QApplication::clipboard()->setMimeData(mime);
-    const auto normalized = ClipboardPayload::capture(QApplication::clipboard()->mimeData(), &error);
-    if (!normalized.isEmpty()) m_lastHash = ClipboardPayload::hash(normalized);
-#endif
-    m_applying = false;
-    completeReceived("copied");
-    remember(payload);
-    report("Applied " + ClipboardPayload::description(payload));
-#endif
-}
-void ClipboardSession::pollAndroidInbox() {
-#ifdef Q_OS_ANDROID
-    if (m_loadingInbox || m_applying || m_profile.isPaused()) return;
-    m_loadingInbox = true;
-    const quint64 revision = m_revision;
-    AndroidBridge::consumeInbox(m_profile, this, [this, revision](const QJsonObject &payload) {
-        m_loadingInbox = false;
-        if (revision == m_revision && !payload.isEmpty()) apply(payload);
-    });
-#endif
+    const auto profile = m_profile;
+    const auto id = m_incomingId, sender = m_incomingSender;
+    m_incomingId.clear(); m_incomingSender.clear();
+    const auto revision = m_revision;
+    Async::run(this, [profile, payload, sender, id] { return ExchangeStore::record(profile, payload, sender, id); },
+        [this, revision, payload, id, sender](const QString &stored) {
+            if (revision != m_revision) return;
+            if (m_engine && !id.isEmpty()) m_engine->completeIncoming(id, sender, stored.isEmpty() ? "failed" : "received",
+                stored.isEmpty() ? "Could not store received content." : QString());
+            if (stored.isEmpty()) { report("Could not store received content."); return; }
+            remember(payload); emit exchangeChanged();
+            report("New item received. Choose Copy on the home screen.");
+        });
 }
 void ClipboardSession::importFiles(const QList<QUrl> &urls) {
 #ifdef Q_OS_IOS
@@ -426,13 +391,20 @@ void ClipboardSession::remember(const QJsonObject &payload) {
 }
 void ClipboardSession::copyHistory(const QString &id) {
     if (m_preparingSend || !m_profile.historyEnabled) return;
-    struct Copy { QString hash, error, text, html; QImage image; QList<QUrl> urls; QMap<QString, QByteArray> formats; bool valid = false; };
-    const Profile profile = m_profile; const quint64 revision = m_revision;
+    const auto profile = m_profile;
+    copyPayload([profile, id] { return QJsonObject{{"payload", LocalHistory::payload(profile, id)}}; });
+}
+void ClipboardSession::copyPayload(const std::function<QJsonObject()> &load) {
+    if (m_preparingSend) return;
+    struct Copy { QString hash, error, text, html, transferId, sender; QImage image; QList<QUrl> urls; QMap<QString, QByteArray> formats; bool valid = false; };
+    const quint64 revision = m_revision;
     setBusy(true);
-    Async::run(this, [profile, id] {
+    Async::run(this, [load] {
         Copy result;
-        const auto payload = LocalHistory::payload(profile, id);
-        if (payload.isEmpty()) { result.error = "History item is no longer available."; return result; }
+        const auto item = load();
+        const auto payload = item.value("payload").toObject();
+        result.transferId = item.value("transferId").toString(); result.sender = item.value("sender").toString();
+        if (payload.isEmpty()) { result.error = "This item is no longer available."; return result; }
         std::unique_ptr<QMimeData> mime(ClipboardPayload::materialize(payload, QDir(Profile::dataDirectory()).filePath("received"), &result.error));
         if (!mime) return result;
         result.valid = true; result.hash = ClipboardPayload::hash(payload); result.text = mime->text(); result.html = mime->html();
@@ -442,10 +414,10 @@ void ClipboardSession::copyHistory(const QString &id) {
         return result;
     }, [this, revision](const Copy &result) {
         setBusy(false);
-        if (revision != m_revision || !m_profile.historyEnabled) return;
+        if (revision != m_revision) return;
         if (!result.valid) { report(result.error); return; }
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        if (QApplication::applicationState() != Qt::ApplicationActive) { report("Open the app to copy history."); return; }
+        if (QApplication::applicationState() != Qt::ApplicationActive) { report("Open the app to copy this item."); return; }
 #endif
         m_applying = true; m_lastHash = result.hash;
 #ifdef Q_OS_ANDROID
@@ -465,7 +437,13 @@ void ClipboardSession::copyHistory(const QString &id) {
             else { mime->setText(result.text); if (!result.html.isEmpty()) mime->setHtml(result.html); }
             QApplication::clipboard()->setMimeData(mime);
         }
-        m_applying = false; report("Copied history item.");
+        m_applying = false;
+#ifdef Q_OS_ANDROID
+        AndroidBridge::acknowledgeTransfer(m_profile, result.transferId, result.sender);
+#else
+        if (m_engine && !result.transferId.isEmpty()) m_engine->completeIncoming(result.transferId, result.sender, "copied");
+#endif
+        emit historyChanged(); report("Copied. Paste it into another app.");
     });
 }
 

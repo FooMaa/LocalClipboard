@@ -10,6 +10,10 @@ class AppController final : public QObject {
     Q_PROPERTY(QVariantList history READ history NOTIFY historyChanged)
     Q_PROPERTY(bool historyEnabled READ historyEnabled NOTIFY profileChanged)
     Q_PROPERTY(bool sendingEnabled READ sendingEnabled NOTIFY profileChanged)
+    Q_PROPERTY(bool automaticClipboard READ automaticClipboard NOTIFY profileChanged)
+    Q_PROPERTY(bool automaticClipboardSupported READ automaticClipboardSupported CONSTANT)
+    Q_PROPERTY(QVariantList exchangeItems READ exchangeItems NOTIFY exchangeChanged)
+    Q_PROPERTY(bool loadingExchange READ loadingExchange NOTIFY loadingExchangeChanged)
     Q_PROPERTY(bool receivingEnabled READ receivingEnabled NOTIFY profileChanged)
     Q_PROPERTY(QString accessState READ accessState NOTIFY profileChanged)
     Q_PROPERTY(bool managedAccess READ managedAccess NOTIFY profileChanged)
@@ -63,6 +67,15 @@ public:
     QVariantList history() const { return m_history; }
     bool historyEnabled() const { return m_session.profile().historyEnabled; }
     bool sendingEnabled() const { return m_session.profile().sendingEnabled; }
+    bool automaticClipboard() const { return m_session.profile().automaticClipboard; }
+    bool automaticClipboardSupported() const;
+    QVariantList exchangeItems() const { return m_exchangeItems; }
+    bool loadingExchange() const { return m_loadingExchange; }
+    Q_INVOKABLE void setAutomaticClipboard(bool enabled);
+    Q_INVOKABLE bool sendText(const QString &text) { return m_session.sendText(text); }
+    Q_INVOKABLE void copyExchangeItem(const QString &id) { m_session.copyExchangeItem(id); }
+    Q_INVOKABLE void refreshExchange();
+    Q_INVOKABLE void clearExchange();
     bool receivingEnabled() const { return m_session.profile().receivingEnabled; }
     bool managedAccess() const { return m_session.profile().managed(); }
     bool administrator() const;
@@ -122,6 +135,8 @@ signals:
     void transfersChanged();
     void historyChanged();
     void diagnosticsChanged();
+    void exchangeChanged();
+    void loadingExchangeChanged();
 private:
     ClipboardSession m_session;
     QVariantList m_files;
@@ -131,4 +146,8 @@ private:
     QVariantList m_history;
     QString m_diagnostics;
     quint64 m_historyRevision = 0;
+    QVariantList m_exchangeItems;
+    bool m_loadingExchange = false;
+    bool m_exchangeDirty = false;
+    QString m_exchangeRevision;
 };

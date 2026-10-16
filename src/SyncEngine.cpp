@@ -60,6 +60,7 @@ SyncEngine::SyncEngine(const Profile &profile, QObject *parent, quint16 discover
         for (auto it = m_peers.begin(); it != m_peers.end();) {
             if (m_clock.elapsed() - it->seen > 15000) it = m_peers.erase(it); else ++it;
         }
+        sendPendingReceipts();
         announce();
     });
     m_timer.start(3000);
@@ -219,15 +220,8 @@ bool SyncEngine::processAnnouncement(const QByteArray &bytes, const QHostAddress
     m_peers.insert(id, Peer{id, obj.value("name").toString(), address, quint16(obj.value("port").toInt()), m_clock.elapsed(), obj.value("receipts").toBool(), publicKey, sourcePort});
     // Reply once to a newly authenticated peer; never create a reply loop.
     if (isNew && !discoverySocket) contact(address, sourcePort);
-    // A receipt queued while the phone was suspended is delivered on reconnection.
-    if (DeviceAccess::approved(m_profile, id, publicKey)) {
-        const auto receipts = m_receipts;
-        for (auto it = receipts.cbegin(); it != receipts.cend(); ++it) {
-            if (now - qint64(it.value().value("time").toDouble()) > 600) { m_receipts.remove(it.key()); m_receiptAttempts.remove(it.key()); continue; }
-            if (it.value().value("to").toString() == id && now - m_receiptAttempts.value(it.key()) >= 3
-                && sendControl(m_peers.value(id), it.value())) m_receiptAttempts.insert(it.key(), now);
-        }
-    }
+    // Deferred copy receipts also survive a pause until this process reconnects.
+    sendPendingReceipts();
     emit peersChanged();
     return true;
 }
@@ -535,6 +529,16 @@ bool SyncEngine::sendControl(const Peer &peer, const QJsonObject &control) {
     if (!DeviceAccess::approved(m_profile, peer.id, peer.publicKey)) return false;
     return sendTo(peer, QJsonDocument(control).toJson(QJsonDocument::Compact));
 }
+void SyncEngine::sendPendingReceipts() {
+    if (m_profile.isPaused()) return;
+    const auto receipts = m_receipts;
+    const auto now = QDateTime::currentSecsSinceEpoch();
+    for (auto it = receipts.cbegin(); it != receipts.cend() && m_connections < 8; ++it) {
+        const auto sender = it.value().value("to").toString();
+        if (now - m_receiptAttempts.value(it.key()) < 3 || !m_peers.contains(sender)) continue;
+        if (sendControl(m_peers.value(sender), it.value())) m_receiptAttempts.insert(it.key(), now);
+    }
+}
 void SyncEngine::completeIncoming(const QString &id, const QString &sender, const QString &state, const QString &error) {
     if (id.isEmpty() || sender.isEmpty() || id.size() > 100 || (state != "received" && state != "copied" && state != "failed")) return;
     {
@@ -544,14 +548,16 @@ void SyncEngine::completeIncoming(const QString &id, const QString &sender, cons
     }
     const QJsonObject control{{"type", "receipt"}, {"id", id}, {"to", sender}, {"state", state}, {"error", error.left(256)}, {"time", double(QDateTime::currentSecsSinceEpoch())}};
     const auto incoming = m_incomingAcks.value(id);
-    if (incoming.socket && incoming.socket->state() == QAbstractSocket::ConnectedState) {
+    // A Copy action can race the sender closing the original "received" socket.
+    // Send its receipt independently so that close cannot discard the new status.
+    if (state != "copied" && !m_profile.isPaused() && incoming.socket && incoming.socket->state() == QAbstractSocket::ConnectedState) {
         const auto wire = SecureProtocol::seal(incoming.channel, QJsonDocument(control).toJson(QJsonDocument::Compact), incoming.context);
         QByteArray header(4, Qt::Uninitialized); qToBigEndian(quint32(wire.size()), reinterpret_cast<uchar *>(header.data()));
         incoming.socket->write(header + wire); return;
     }
     if (m_receipts.size() >= 128 && !m_receipts.contains(id)) return;
-    m_receipts.insert(id, control); m_receiptAttempts.insert(id, QDateTime::currentSecsSinceEpoch());
-    if (m_peers.contains(sender)) sendControl(m_peers.value(sender), control);
+    m_receipts.insert(id, control); m_receiptAttempts.remove(id);
+    sendPendingReceipts();
 }
 void SyncEngine::loadDevices() {
     QFile file(QDir(Profile::dataDirectory()).filePath("devices.json"));
@@ -613,5 +619,6 @@ void SyncEngine::configure(const Profile &profile) {
     if (profile.isPaused() || registryChanged) {
         for (auto *socket : findChildren<QTcpSocket *>(QString(), Qt::FindDirectChildrenOnly)) socket->abort();
     }
+    sendPendingReceipts();
     announce();
 }

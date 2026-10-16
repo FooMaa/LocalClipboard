@@ -1,21 +1,35 @@
 # LocalClipboard
 
-Encrypted LAN clipboard synchronization for **macOS, Linux, Windows, Android and iOS/iPadOS**.
+Encrypted LAN sharing for **macOS, Linux, Windows, Android and iOS/iPadOS**.
 Text, formatted text, images, photos and files go directly between your own devices;
 there is no cloud, email account or central server.
+
+## Share from Home
+
+Automatic clipboard reading is **off by default**, including after upgrading an older
+profile. On **Home**, write or paste text and choose **Send text**, or choose photos
+and files. Sending from the clipboard is also an explicit action. Connect and approve
+your devices on the same LAN first. New items appear in **Recent exchange** on each
+receiving device; choose **Copy**, then paste into another app. Receiving never
+replaces the system clipboard automatically, including on desktops.
+
+The home list is encrypted with this device's storage key and retains at most **20
+items / 64 MiB / 7 days**. Clear removes the local list; other devices and already
+materialized file copies are kept. This inbox is separate from optional clipboard
+history. Desktops can opt in to **Settings → Automatically read and send clipboard**;
+Android/iOS keep explicit sending because of their clipboard restrictions.
 
 ## Registration and separate users
 
 The installer opens the registration wizard (or open LocalClipboard after installing).
-On your first device, enter your name and a device name, then **Create a personal
-profile**. On your other devices, choose **Connect to my existing profile** and enter
+On your first device, enter your name and a device name, then **Create my profile**. On your other devices, choose **Connect** and enter
 the connection code shown by **Connect another device**.
 
 Each person creates their own profile. For example, Anton's laptop and phone use
 Anton's code; his partner's laptop and phone use a different code. Sharing the same
 Wi-Fi does not connect these profiles. Device IDs, names, profile membership, pause
 and startup preferences survive restarts and upgrades. A device uses one profile
-at a time; **Change personal profile** registers it with a new or existing profile.
+at a time; **Change profile…** registers it with a new or existing profile.
 
 New profiles use `LC3.…` invitations and separate device keys. The profile owner's
 device approves join requests and can revoke lost devices under **Devices and access**.
@@ -79,9 +93,9 @@ reopen it from the application launcher. Android also exposes the system's
 foreground-service controls to stop its background work.
 
 **Android 10+ does not permit ordinary background apps to read the clipboard.**
-Open the app and press **Send current clipboard**, or use **Share → LocalClipboard**
+Open the app and choose **Settings → Send from clipboard**, or use **Share → LocalClipboard**
 from a gallery, file manager or another app. Received items are queued in private
-storage; tap **Copy** in the notification or **Copy received clipboard** in the app.
+storage; tap **Copy** in the notification or on the item on **Home**.
 Opening the app alone does not replace your clipboard. Enable banners in
 **Settings → Notification settings**; Android and Do Not Disturb control their visibility. Photos
 and files are exposed as read-only content URIs through FileProvider, so other apps
@@ -94,7 +108,7 @@ and allow **Local Network** access. With an old connection code, enter the IP in
 app replies directly, so no restricted broadcast entitlement is needed. Keep the
 phone app open to receive. **Open in / Copy to LocalClipboard** imports documents
 from apps that offer that action; arbitrary text sharing uses the clipboard button.
-Files selected from **Send files / photos** or imported from another app are queued
+Files selected from **Choose photos or files…** or imported from another app are queued
 for the active personal profile. The **Files** tab lists received copies for opening or deletion.
 To retry imported content, select the source files again in Photos / Files. See the [iOS setup guide](packaging/ios/README.md).
 
@@ -103,20 +117,21 @@ To retry imported content, select the source files again in Photos / Files. See 
 - Plain text and HTML formatting.
 - Clipboard images, transferred as PNG (up to 32 megapixels, 8192 pixels per side).
 - Up to 32 files per transfer, including photos, videos and documents. Bytes are
-  transferred, then stored locally and placed in the receiving clipboard as files.
+  transferred to Recent exchange, then placed in the clipboard as files only after Copy.
   Linux also supplies GNOME/KDE copy formats; Windows uses copy semantics.
-- **Send files / photos** sends files selected from a picker without requiring them
+- **Choose photos or files…** sends files selected from a picker without requiring them
   to already be in the clipboard.
 
 The combined raw-content limit is **32 MiB per transfer**. Folders and symbolic links
 are not transferred; archive a folder first. Cut/move operations are received as
 copies. Unsafe paths and duplicate filenames are rejected; nothing is executed or
-opened automatically. Received files stay in the application's private `received`
+opened automatically. After you choose **Copy**, file copies stay in the application's private `received`
 directory; the **Files** tab lets you access them. They are not automatically
 deleted while another app may still need to paste them, so remove old files manually.
-There is no transfer history, resumable streaming or delivery acknowledgement yet.
+Transfers show authenticated delivery and copy receipts. Resumable streaming is not yet supported.
 Desktop copies made while all registered peers are offline are not sent later;
-Android's latest explicit outgoing item waits for a peer for up to ten minutes.
+Android keeps separate explicit outgoing posts for up to ten minutes, bounded by
+20 queued items and 64 MiB. Clearing Home does not cancel queued sends.
 
 ## Language and removal
 
@@ -223,15 +238,16 @@ plaintext legacy packets, tampered data and replays from previous connections ar
 rejected. Unauthenticated sockets cannot allocate the full transfer buffer.
 
 Android wraps profile secrets with AES-GCM using a non-exportable Android Keystore
-key and migrates older profiles on launch. Clipboard queues and received files stay
-plaintext in app-private storage with backups disabled. Desktop/iOS profile secrets
+key and migrates older profiles on launch. The Home inbox and Android outgoing queue
+are encrypted; materialized files and legacy bridge queues stay plaintext in
+app-private storage with backups disabled. Desktop/iOS profile secrets
 remain in a user-private configuration file; Windows relies on directory ACLs.
 Received files are limited to 512 MiB / 16,384 files: existing copies are kept and
 new transfers are refused when full.
 This protects against unrelated LAN users, not a compromised registered device or
 malware running as your OS user. The protocol has not had an independent security
-audit and group keys do not provide forward secrecy. Pause synchronization when
-copying content you do not want on your other registered devices.
+audit and group keys do not provide forward secrecy. Automatic clipboard reading is off by default. When you enable it, pause automatic
+sending before copying content you do not want on other registered devices.
 
 See [security checks and release limits](SECURITY.md) for the threat model,
 sanitizer/fuzzer commands and checks requiring real devices and signing.
@@ -255,11 +271,26 @@ for regeneration after changing the SVG.
 
 ### LocalClipboard
 
-Зашифрованная синхронизация буфера обмена в локальной сети для **macOS, Linux, Windows, Android и iOS/iPadOS**. Текст, форматированный текст, изображения, фотографии и файлы передаются напрямую между вашими устройствами. Облако, учётная запись электронной почты и центральный сервер не нужны.
+Зашифрованный обмен в локальной сети для **macOS, Linux, Windows, Android и iOS/iPadOS**. Текст, форматированный текст, изображения, фотографии и файлы передаются напрямую между вашими устройствами. Облако, учётная запись электронной почты и центральный сервер не нужны.
+
+### Обмен с главной страницы
+
+Автоматическое чтение буфера **выключено по умолчанию**, в том числе после обновления
+старого профиля. На **Главной** напишите или вставьте текст и нажмите **Отправить текст**
+либо выберите фото и файлы. Отправка из буфера — отдельная кнопка. Сначала подключите
+и одобрите устройства в одной локальной сети. Полученное появится в **Последнем обмене**;
+нажмите **Скопировать**, затем вставьте в другом приложении. Получение никогда не
+заменяет системный буфер автоматически, в том числе на компьютерах.
+
+Лента шифруется ключом хранения этого устройства и хранит до **20 элементов / 64 МиБ /
+7 дней**. Очистка удаляет местный список; остальные устройства и уже созданные копии
+файлов сохраняются. Лента входящих отделена от необязательной истории буфера.
+На компьютерах автосчитывание можно включить в **Настройки → Автоматически читать
+и отправлять буфер**. Android и iOS используют явную отправку с учётом ограничений ОС.
 
 ### Регистрация и отдельные пользователи
 
-Установщик открывает мастер регистрации; также можно открыть LocalClipboard после установки. На первом устройстве укажите своё имя и имя устройства, затем выберите **«Создать личный профиль»**. На остальных устройствах выберите подключение к существующему профилю и введите код, который отображается при подключении другого устройства.
+Установщик открывает мастер регистрации; также можно открыть LocalClipboard после установки. На первом устройстве укажите своё имя и имя устройства, затем выберите **«Создать профиль»**. На остальных устройствах выберите **«Подключить»** и введите код с экрана **«Подключить другое устройство»**.
 
 Каждый человек создаёт отдельный профиль. Например, ноутбук и телефон Антона используют его код, а устройства его девушки — другой. Подключение к одной сети Wi-Fi не объединяет эти профили. Идентификаторы и имена устройств, принадлежность к профилю, настройки паузы и автозапуска сохраняются после перезапуска и обновления. Устройство использует один профиль одновременно; смена личного профиля позволяет зарегистрировать его в новом или существующем профиле.
 
@@ -297,7 +328,7 @@ QR приватно; они исключены из автоматической
 
 Повторное открытие приложения на компьютере показывает окно уже работающего экземпляра. Для остановки выберите завершение LocalClipboard в настройках или выход в меню трея. Если трея нет, снова откройте приложение через меню приложений. Android также предоставляет системные средства остановки служб переднего плана.
 
-**Android 10+ запрещает обычным фоновым приложениям читать буфер обмена.** Откройте приложение и отправьте текущий буфер либо выберите **«Поделиться → LocalClipboard»** в галерее, файловом менеджере или другом приложении. Полученное содержимое сохраняется в очереди приватного хранилища; нажмите **«Скопировать»** в уведомлении или **«Скопировать полученный буфер»** в приложении. Простое открытие приложения не заменяет буфер. Включите баннеры в **«Настройки → Настройки уведомлений»**; их видимость зависит от Android и режима «Не беспокоить». Фото и файлы доступны через FileProvider в виде URI содержимого только для чтения: другие приложения могут вставлять их без разрешения на доступ ко всему хранилищу. Поддержка файлов и изображений из таких URI зависит от принимающего приложения Android.
+**Android 10+ запрещает обычным фоновым приложениям читать буфер обмена.** Откройте приложение и отправьте текущий буфер либо выберите **«Поделиться → LocalClipboard»** в галерее, файловом менеджере или другом приложении. Полученное содержимое сохраняется в очереди приватного хранилища; нажмите **«Скопировать»** в уведомлении или у элемента на **Главной**. Простое открытие приложения не заменяет буфер. Включите баннеры в **«Настройки → Настройки уведомлений»**; их видимость зависит от Android и режима «Не беспокоить». Фото и файлы доступны через FileProvider в виде URI содержимого только для чтения: другие приложения могут вставлять их без разрешения на доступ ко всему хранилищу. Поддержка файлов и изображений из таких URI зависит от принимающего приложения Android.
 
 На iOS отсканируйте QR компьютера, чтобы заполнить профиль и локальные IPv4-адреса, и разрешите доступ к **«Локальной сети»**. При использовании старого кода подключения укажите IP вручную в настройках сети. Обновлённое приложение на компьютере или Android отвечает напрямую, поэтому ограниченное разрешение на широковещательную передачу не нужно. Для приёма оставляйте приложение на телефоне открытым. Действие **«Открыть в / Скопировать в LocalClipboard»** импортирует документы из приложений, которые его предлагают; для произвольного текста используется кнопка отправки буфера. Файлы из окна отправки файлов и фотографий или из другого приложения попадают в очередь активного личного профиля. Вкладка **«Файлы»** показывает полученные копии для открытия или удаления. Для повторной отправки импортированного содержимого снова выберите исходные файлы в «Фото» или «Файлах». См. [инструкцию для iOS](packaging/ios/README.md#русская-версия).
 
@@ -305,12 +336,12 @@ QR приватно; они исключены из автоматической
 
 - Обычный текст и форматирование HTML.
 - Изображения из буфера передаются в PNG: до 32 мегапикселей и до 8192 пикселей по каждой стороне.
-- До 32 файлов за одну передачу, включая фото, видео и документы. Передаётся содержимое файлов, которое сохраняется локально и помещается в буфер принимающего устройства. Linux также предоставляет форматы копирования GNOME/KDE; Windows использует операцию копирования.
+- До 32 файлов за одну передачу, включая фото, видео и документы. Содержимое файлов попадает в «Последний обмен» и помещается в буфер принимающего устройства только после нажатия «Скопировать». Linux также предоставляет форматы копирования GNOME/KDE; Windows использует операцию копирования.
 - Отправка файлов и фотографий позволяет выбрать их в системном окне, без предварительного помещения в буфер.
 
-Общий предел исходного содержимого — **32 МиБ на передачу**. Папки и символические ссылки не передаются: предварительно упакуйте папку в архив. Операции вырезания или перемещения принимаются как копирование. Небезопасные пути и повторяющиеся имена файлов отклоняются; ничего не запускается и не открывается автоматически. Полученные файлы остаются в приватном каталоге приложения `received`; открыть их можно через вкладку **«Файлы»**. Они не удаляются автоматически, поскольку другому приложению ещё может понадобиться их вставить. Удаляйте старые файлы вручную.
+Общий предел исходного содержимого — **32 МиБ на передачу**. Папки и символические ссылки не передаются: предварительно упакуйте папку в архив. Операции вырезания или перемещения принимаются как копирование. Небезопасные пути и повторяющиеся имена файлов отклоняются; ничего не запускается и не открывается автоматически. После нажатия **«Скопировать»** копии файлов остаются в приватном каталоге приложения `received`; открыть их можно через вкладку **«Файлы»**. Они не удаляются автоматически, поскольку другому приложению ещё может понадобиться их вставить. Удаляйте старые файлы вручную.
 
-История передач, возобновление прерванной передачи и подтверждение доставки пока отсутствуют. Содержимое, скопированное на компьютере, когда все зарегистрированные устройства отключены, позже не отправляется. На Android последний явно отправленный элемент ожидает доступного устройства до десяти минут.
+Экран «Передачи» показывает подтверждения получения и копирования. Возобновление прерванной передачи пока не поддерживается. Содержимое, скопированное на компьютере, когда все зарегистрированные устройства отключены, позже не отправляется. На Android отдельные явно отправленные элементы ожидают устройства до десяти минут: до 20 элементов и 64 МиБ. Очистка главной не отменяет ожидающие отправки.
 
 ### Язык и удаление
 
@@ -368,7 +399,7 @@ ctest --test-dir build_desktop --output-on-failure
 
 Объявления аутентифицируются с помощью BLAKE2b с ключом. Каждой передаче TCP предшествует новый обмен для взаимной аутентификации; содержимое буфера шифруется XChaCha20-Poly1305 с привязкой этого обмена и идентификаторов обоих устройств к шифротексту. Отклоняются чужие профили, незашифрованные пакеты старого протокола, изменённые данные и повторные сообщения предыдущих соединений. Неаутентифицированные соединения не могут выделить полный буфер передачи.
 
-На Android секрет профиля шифруется AES-GCM ключом из Android Keystore, который нельзя экспортировать; старый профиль переносится при запуске. Очереди буфера и полученные файлы остаются незашифрованными в приватном хранилище с отключённым резервным копированием. На компьютерах и iOS секрет профиля остаётся в приватном файле конфигурации; Windows опирается на ACL пользовательского каталога. Полученные файлы ограничены 512 МиБ и 16 384 файлами: существующие копии сохраняются, а новые передачи при заполнении отклоняются. Это защищает от посторонних пользователей локальной сети, но не от взломанного зарегистрированного устройства или вредоносного ПО от имени вашего пользователя ОС. Протокол не проходил независимый аудит безопасности; групповые ключи не обеспечивают прямую секретность. Приостановите синхронизацию перед копированием содержимого, которое не должно попадать на остальные устройства.
+На Android секрет профиля шифруется AES-GCM ключом из Android Keystore, который нельзя экспортировать; старый профиль переносится при запуске. Лента на главной и исходящая очередь Android шифруются; созданные копии файлов и старые очереди остаются незашифрованными в приватном хранилище с отключённым резервным копированием. На компьютерах и iOS секрет профиля остаётся в приватном файле конфигурации; Windows опирается на ACL пользовательского каталога. Полученные файлы ограничены 512 МиБ и 16 384 файлами: существующие копии сохраняются, а новые передачи при заполнении отклоняются. Это защищает от посторонних пользователей локальной сети, но не от взломанного зарегистрированного устройства или вредоносного ПО от имени вашего пользователя ОС. Протокол не проходил независимый аудит безопасности; групповые ключи не обеспечивают прямую секретность. Авточтение буфера выключено по умолчанию. Если вы его включили, приостанавливайте отправку перед копированием содержимого, которое не должно попадать на остальные устройства.
 
 Модель угроз, команды санитайзеров и фаззинга, а также проверки на реальных устройствах и с подписью описаны в [проверках безопасности и ограничениях выпуска](SECURITY.md#русская-версия).
 

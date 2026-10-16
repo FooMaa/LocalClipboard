@@ -15,7 +15,7 @@ Control {
         rowSpacing: 12
         Repeater {
             model: [
-                { page: "home", label: qsTr("Clipboard") },
+                { page: "home", label: qsTr("Home") },
                 { page: "files", label: qsTr("Files") },
                 { page: "settings", label: qsTr("Settings") }
             ]

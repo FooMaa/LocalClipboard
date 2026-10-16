@@ -101,19 +101,19 @@ translation downloads. Every registration form offers Русский / English a
 the preference for later launches. NSIS explicitly offers both languages and
 passes the choice to the app. Shell installers accept `LC_LANGUAGE=ru|en` or
 prompt in a terminal. The macOS DMG installer explicitly offers both languages;
-its first-run registration wizard offers the explicit language choice.
+its first-run registration wizard offers the explicit language choice and the installer passes its selection to the app.
 
 The same installer handles reinstall and removal. On macOS, DMG radio buttons select
 exactly one action. The installation payload and guarded removal script are separate
 internal packages. Removal keeps user data, removes the current user's launchd entry
-and cleans up obsolete uninstall launchers.
+and cleans up obsolete uninstall launchers. Uninstall is unavailable when the app is absent; the application ZIP contains only the main app.
 
 NSIS detects the recorded Windows installation directory and delegates removal to
 its installed uninstaller, including the optional data-erasure dialog. Linux checks
 DEB status before offering reinstall/remove/cancel. Android queries the selected
 ADB device; iOS queries installed apps with devicectl when IOS_DEVICE_ID is provided.
-Phone removal requires DELETE confirmation. Shell scripts accept LC_ACTION for
-explicit action selection; Android PowerShell accepts -Action. Reinstall keeps data.
+Phone removal requires `DELETE` confirmation. Shell scripts accept `LC_ACTION` for
+explicit action selection; Android PowerShell accepts `-Action`. Reinstall keeps data.
 All of these are included by the existing `installers` target; output counts stay
 at five packages and five installers.
 
@@ -125,8 +125,10 @@ switch input, instance quit IPC and background synchronization.
 Diagnostic screenshot export runs separately on macOS CI with
 `LOCALCLIPBOARD_TEST_SCREENSHOTS=1`. It waits for rendered frames and verifies image
 capture and saving; layout and interaction tests run on every desktop host.
+`python3 tests/ReadmeTests.py` tests the translation checker against missing technical
+details, untranslated paragraphs and broken local links.
 `python3 scripts/check-readmes` checks all README language sections, matching
-commands and links, and rejects English prose left after the Russian divider.
+commands and links in both directions, and rejects English prose left after the Russian divider.
 
 ---
 
@@ -202,4 +204,5 @@ NSIS обнаруживает сохранённый каталог устано
 
 Экспорт диагностических скриншотов запускается отдельно на macOS в CI с `LOCALCLIPBOARD_TEST_SCREENSHOTS=1`. Он ожидает отрисованные кадры и проверяет захват и сохранение изображений; проверки разметки и ввода выполняются на каждой ОС компьютера.
 
-Команда `python3 scripts/check-readmes` проверяет языковые разделы всех README, соответствие команд и ссылок, а также выявляет английские абзацы после разделителя русской версии.
+Команда `python3 tests/ReadmeTests.py` проверяет, что валидатор переводов обнаруживает пропущенные технические сведения, непереведённые абзацы и сломанные локальные ссылки.
+Команда `python3 scripts/check-readmes` проверяет языковые разделы всех README, соответствие команд и ссылок в обоих направлениях, а также выявляет английские абзацы после разделителя русской версии.

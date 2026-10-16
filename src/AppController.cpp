@@ -10,6 +10,7 @@
 #include "Uninstall.h"
 #include "DeviceAccess.h"
 #include "LocalHistory.h"
+#include "ExchangeStore.h"
 #include "SourceApplication.h"
 #include <QDateTime>
 #include <QJsonDocument>
@@ -27,6 +28,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QTimer>
 #ifdef Q_OS_ANDROID
 #include "AndroidBridge.h"
 #endif
@@ -43,6 +45,12 @@ AppController::AppController(const Profile &profile, QObject *parent)
     connect(&m_session, &ClipboardSession::transfersChanged, this, &AppController::transfersChanged);
     connect(&m_session, &ClipboardSession::historyChanged, this, [this] { refreshHistory(); });
     connect(&m_session, &ClipboardSession::shareChanged, this, &AppController::shareChanged);
+    connect(&m_session, &ClipboardSession::exchangeChanged, this, [this] { m_exchangeDirty = true; refreshExchange(); });
+    connect(&m_session, &ClipboardSession::profileChanged, this, [this] { m_exchangeDirty = true; refreshExchange(); });
+    auto *inboxPoll = new QTimer(this);
+    connect(inboxPoll, &QTimer::timeout, this, &AppController::refreshExchange);
+    inboxPoll->start(2000);
+    m_exchangeDirty = true; refreshExchange();
     connect(qApp, &QGuiApplication::applicationStateChanged, this, &AppController::stateChanged);
     connect(&I18n::instance(), &I18n::languageChanged, this, [this] {
 #ifdef Q_OS_ANDROID
@@ -223,6 +231,54 @@ void AppController::pauseFor15Minutes() {
 }
 void AppController::setSendingEnabled(bool enabled) { Profile next = m_session.profile(); next.sendingEnabled = enabled; m_session.saveProfile(next); }
 void AppController::setReceivingEnabled(bool enabled) { Profile next = m_session.profile(); next.receivingEnabled = enabled; m_session.saveProfile(next); }
+bool AppController::automaticClipboardSupported() const {
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    return false;
+#else
+    return true;
+#endif
+}
+void AppController::setAutomaticClipboard(bool enabled) {
+    if (enabled && !automaticClipboardSupported()) return;
+    Profile next = m_session.profile(); next.automaticClipboard = enabled; m_session.saveProfile(next);
+}
+void AppController::refreshExchange() {
+    if (m_loadingExchange) return;
+    struct Result { QString revision; QVariantList items; bool changed; };
+    const auto profile = m_session.profile();
+    const auto previous = m_exchangeRevision;
+    const bool force = m_exchangeDirty;
+    m_exchangeDirty = false;
+    m_loadingExchange = true;
+    emit loadingExchangeChanged();
+    Async::run(this, [profile, previous, force] {
+        const auto revision = ExchangeStore::revision();
+        const bool changed = force || revision != previous;
+        return Result{revision, changed ? ExchangeStore::entries(profile) : QVariantList(), changed};
+    }, [this, profile](const Result &result) {
+        m_loadingExchange = false;
+        emit loadingExchangeChanged();
+        if (profile.key != m_session.profile().key || profile.deviceId != m_session.profile().deviceId) {
+            if (!m_exchangeItems.isEmpty()) {
+                m_exchangeItems.clear();
+                emit exchangeChanged();
+            }
+            m_exchangeDirty = true;
+        } else if (result.changed) {
+            m_exchangeRevision = result.revision;
+            if (m_exchangeItems != result.items) {
+                m_exchangeItems = result.items;
+                emit exchangeChanged();
+            }
+        }
+        if (m_exchangeDirty) refreshExchange();
+    });
+}
+void AppController::clearExchange() {
+    Async::run(this, [] { ExchangeStore::clear(); return true; }, [this](bool) {
+        m_exchangeDirty = true; refreshExchange();
+    });
+}
 void AppController::setHistoryEnabled(bool enabled) {
     Profile next = m_session.profile(); next.historyEnabled = enabled;
     if (m_session.saveProfile(next)) { if (!enabled) LocalHistory::clear(); refreshHistory(); }

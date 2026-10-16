@@ -109,6 +109,7 @@ bool Profile::save(QString *error, const QString &directory) const {
         {"ownerName", ownerName.left(80)}, {"key", storedKey},
         {"autostart", autostart}, {"paused", paused}, {"pauseUntil", double(pauseUntil)},
         {"sendingEnabled", sendingEnabled}, {"receivingEnabled", receivingEnabled}, {"historyEnabled", historyEnabled},
+        {"automaticClipboard", automaticClipboard},
         {"historyDays", historyDays}, {"historyMiB", historyMiB}, {"excludedApplications", QJsonArray::fromStringList(excludedApplications)},
         {"deviceSecret", storedDevice},
         {"authoritySeed", storedAuthority},
@@ -136,6 +137,7 @@ Profile Profile::load(const QString &directory) {
             p.pauseUntil = qint64(qBound(0.0, obj.value("pauseUntil").toDouble(), 4102444800.0));
             p.sendingEnabled = obj.value("sendingEnabled").toBool(true); p.receivingEnabled = obj.value("receivingEnabled").toBool(true);
             p.historyEnabled = obj.value("historyEnabled").toBool(false);
+            p.automaticClipboard = obj.value("automaticClipboard").toBool(false);
             p.historyDays = qBound(1, obj.value("historyDays").toInt(7), 30); p.historyMiB = qBound(1, obj.value("historyMiB").toInt(16), 64);
             p.deviceSecret = SecretStore::decode(obj.value("deviceSecret").toString());
             p.authoritySeed = SecretStore::decode(obj.value("authoritySeed").toString());

@@ -1,5 +1,11 @@
 # LocalClipboard for your iPhone / iPad
 
+On **Home**, write or paste text, or choose photos/files. Clipboard reading requires
+an explicit action. Received items appear in **Recent exchange**; choose **Copy** to
+paste them into another app. Reception never overwrites the clipboard automatically.
+The encrypted local list keeps up to 20 items / 64 MiB / seven days independently
+of optional history. File copies appear under **Files** after you copy an item.
+
 Requires iOS 17+, a Mac with full Xcode (iOS SDK installed), and the Qt 6 iOS kit.
 Xcode Command Line Tools and desktop Homebrew Qt alone are insufficient.
 
@@ -21,7 +27,7 @@ Xcode Command Line Tools and desktop Homebrew Qt alone are insufficient.
    Identifier, for example `com.yourname.LocalClipboard`.
 5. Select your connected iPhone/iPad as the run destination and press **Run**.
    Follow Xcode/device prompts for trusting the developer. Register the device
-   in the app using the same `LC2.…` connection code as your computer.
+   in the app using the same `LC3.…` invitation (or a legacy `LC2.…` connection code) as your computer.
 
 A Personal Team can be used for local device development. Its provisioning expires;
 rebuild with Xcode when required. No App Groups, push notifications, multicast
@@ -53,9 +59,9 @@ Xcode installation flow, not an App Store IPA or a standalone iPhone installer.
 - Keep both apps open on the same LAN. The computer must use the updated version
   that replies to authenticated direct discovery. Your personal profile still
   controls membership; knowing an IP never grants clipboard access.
-- **Send current clipboard** sends text / images explicitly. iOS may ask for paste
+- **Settings → Send from clipboard** sends text / images explicitly. iOS may ask for paste
   permission. The app never polls the clipboard or reads it automatically on launch.
-- **Send files / photos** uses Apple's Files or Photos picker. Up to 32 files,
+- **Choose photos or files…** on **Home** uses Apple's Files or Photos picker. Up to 32 files,
   32 MiB combined; iCloud content may need downloading first.
 - From Files or another app that offers **Open in / Copy to LocalClipboard**, send
   a document to LocalClipboard. Available actions depend on the sending app. This
@@ -63,11 +69,13 @@ Xcode installation flow, not an App Store IPA or a standalone iPhone installer.
   text selections. Use the clipboard button for text.
 - Imported files are queued for the current personal profile and sent when the app
   is active and a registered peer is discovered. A different profile never sends
-  the old queue. Once a send starts, its queue entry is removed; delivery is not
-  acknowledged by the current protocol. Local imported copies remain available
-  in app storage. To retry, select the source files again in Photos / Files.
-- Received images and files are saved locally; the **Files** tab lists received
-  copies with **Open** and **Delete** actions. Opening and clipboard file support
+  the old queue. Once a send starts, its import queue entry is removed. **Transfers**
+  shows authenticated delivery and copy receipts and offers **Retry** for retained
+  transfers. Local imported copies remain available in app storage. If a transfer
+  is no longer retained, select the source files again in Photos / Files.
+- Received images and files first appear in the encrypted list on **Home**.
+  Choosing **Copy** creates local file copies; the **Files** tab lists those copies
+  with **Open** and **Delete** actions. Opening and clipboard file support
   depend on the receiving app. The configuration / connection secret is never exposed there.
 
 ## iOS limits
@@ -76,7 +84,7 @@ Ordinary iOS apps cannot run as a permanent LAN daemon, start at boot, or monito
 other apps' clipboard in the background. Reception runs while LocalClipboard is
 active. Leaving the app closes its sockets; returning starts discovery again.
 No audio/location/VPN background-mode workaround is used. Open the phone app before
-copying on the computer; copies made while it is suspended are not replayed later.
+sending from the computer; items sent while it is suspended are not replayed automatically.
 
 Direct IPv4 discovery avoids the restricted multicast/broadcast entitlement.
 Wi-Fi client isolation, firewalls and VPN routing can still block communication.
@@ -110,10 +118,19 @@ image…** if a camera is unavailable. Keep the QR private: it grants access to 
 personal profile. It also includes local IPv4 addresses; registration applies the key
 and addresses together. Legacy connection codes require manual addresses.
 For an already registered phone, open **Change profile…** first.
+For `LC3.…` profiles, approve the phone under **Devices and access** on the
+profile owner's device after registration. Compare fingerprints before approving.
 
 ---
 
 ## Русская версия
+
+На **Главной** напишите или вставьте текст либо выберите фото и файлы. Чтение буфера
+требует явного действия. Полученное появляется в **Последнем обмене**; нажмите
+**Скопировать**, затем вставьте в другом приложении. Получение не заменяет буфер
+автоматически. Зашифрованная местная лента хранит до 20 элементов / 64 МиБ / семи
+дней отдельно от необязательной истории. Копии файлов появляются во вкладке
+**Файлы** после копирования элемента.
 
 ### LocalClipboard для вашего iPhone / iPad
 
@@ -132,7 +149,7 @@ For an already registered phone, open **Change profile…** first.
    ```
 
 4. Скрипт собирает неподписанное приложение и открывает проект Xcode. Добавьте учётную запись Apple в Xcode Settings → Accounts. Выберите цель приложения **LocalClipboard**, свою **Team**, включите автоматическую подпись и укажите уникальный Bundle Identifier, например `com.yourname.LocalClipboard`.
-5. Выберите подключённый iPhone или iPad как устройство запуска и нажмите **Run**. Следуйте запросам Xcode и устройства для подтверждения доверия разработчику. Зарегистрируйте устройство в приложении с тем же кодом подключения `LC2.…`, который используется на компьютере.
+5. Выберите подключённый iPhone или iPad как устройство запуска и нажмите **Run**. Следуйте запросам Xcode и устройства для подтверждения доверия разработчику. Зарегистрируйте устройство в приложении с тем же приглашением `LC3.…` (либо старым кодом подключения `LC2.…`), которое используется на компьютере.
 
 Для локальной разработки на своём устройстве подходит Personal Team. Её профиль подготовки имеет срок действия; при необходимости пересоберите приложение в Xcode. Приложение не требует App Groups, push-уведомлений, разрешения multicast, фонового режима или загрузки в App Store. Установщику нужен комплект Qt для iOS; он собирает приложение из включённых исходников, а не переподписывает чужую готовую сборку.
 
@@ -152,15 +169,15 @@ export IOS_DEVICE_ID=YOUR_DEVICE_ID # См.: xcrun devicectl list devices
 - Отсканируйте QR компьютера при регистрации, чтобы заполнить профиль и IPv4-адреса вместе. При использовании старого кода подключения определите IPv4-адрес компьютера в Wi-Fi или локальной сети через настройки.
 - При подключении без QR введите этот адрес в настройках сети. При запросе iOS разрешите доступ к **«Локальной сети»** либо включите его в Settings → Apps → LocalClipboard.
 - Оставляйте оба приложения открытыми в одной локальной сети. На компьютере нужна обновлённая версия, отвечающая на аутентифицированные прямые запросы обнаружения. Доступ по-прежнему определяется личным профилем: знание IP-адреса не даёт доступа к буферу.
-- Кнопка отправки текущего буфера явно отправляет текст и изображения. iOS может запросить разрешение на вставку. Приложение не опрашивает буфер и не читает его автоматически при запуске.
-- Отправка файлов и фотографий использует системные окна Apple «Файлы» и «Фото». Поддерживается до 32 файлов общим объёмом до 32 МиБ; содержимое iCloud может потребоваться предварительно скачать.
+- **«Настройки → Отправить из буфера»** явно отправляет текст и изображения. iOS может запросить разрешение на вставку. Приложение не опрашивает буфер и не читает его автоматически при запуске.
+- Кнопка **«Выбрать фото или файлы…»** на **«Главной»** использует системные окна Apple «Файлы» и «Фото». Поддерживается до 32 файлов общим объёмом до 32 МиБ; содержимое iCloud может потребоваться предварительно скачать.
 - Из «Файлов» или другого приложения с действием **«Открыть в / Скопировать в LocalClipboard»** можно передать документ. Доступные действия зависят от отправляющего приложения. Используется механизм открытия документов iOS; отдельного расширения «Поделиться» для произвольного выделенного текста нет. Для текста используйте кнопку отправки буфера.
-- Импортированные файлы попадают в очередь текущего личного профиля и отправляются, когда приложение активно и обнаружено зарегистрированное устройство. Другой профиль не отправляет старую очередь. После начала отправки запись удаляется из очереди; текущий протокол не подтверждает доставку. Локальные импортированные копии остаются в хранилище приложения. Для повторной отправки снова выберите исходные файлы в «Фото» или «Файлах».
-- Полученные изображения и файлы сохраняются локально. Вкладка **«Файлы»** показывает полученные копии с действиями **«Открыть»** и **«Удалить»**. Возможность открытия и поддержка файлов из буфера зависят от принимающего приложения. Конфигурация и секрет подключения никогда не показываются в нём.
+- Импортированные файлы попадают в очередь текущего личного профиля и отправляются, когда приложение активно и обнаружено зарегистрированное устройство. Другой профиль не отправляет старую очередь. После начала отправки запись удаляется из очереди импорта. Экран **«Передачи»** показывает аутентифицированные подтверждения доставки и копирования и предлагает **«Повторить»** для сохранённых передач. Локальные импортированные копии остаются в хранилище приложения. Если передача больше не хранится, снова выберите исходные файлы в «Фото» или «Файлах».
+- Полученные изображения и файлы сначала появляются в зашифрованной ленте на **«Главной»**. Кнопка **«Скопировать»** создаёт локальные копии файлов; вкладка **«Файлы»** показывает эти копии с действиями **«Открыть»** и **«Удалить»**. Возможность открытия и поддержка файлов из буфера зависят от принимающего приложения. Конфигурация и секрет подключения никогда не показываются в нём.
 
 ### Ограничения iOS
 
-Обычное приложение iOS не может работать как постоянный демон локальной сети, запускаться при загрузке или отслеживать буфер других приложений в фоне. Приём работает, пока LocalClipboard активно. При выходе из приложения его сокеты закрываются; после возвращения обнаружение запускается снова. Обходы через фоновые режимы аудио, геолокации или VPN не используются. Откройте приложение на телефоне до копирования на компьютере: содержимое, скопированное во время приостановки, позже не повторяется.
+Обычное приложение iOS не может работать как постоянный демон локальной сети, запускаться при загрузке или отслеживать буфер других приложений в фоне. Приём работает, пока LocalClipboard активно. При выходе из приложения его сокеты закрываются; после возвращения обнаружение запускается снова. Обходы через фоновые режимы аудио, геолокации или VPN не используются. Откройте приложение на телефоне до отправки с компьютера: содержимое, отправленное во время приостановки, автоматически позже не повторяется.
 
 Прямое обнаружение IPv4 позволяет обойтись без ограниченного разрешения на multicast и широковещательную передачу. Изоляция клиентов Wi-Fi, брандмауэры и маршрутизация VPN всё равно могут блокировать связь. Если DHCP изменил IP компьютера, обновите сохранённый адрес или закрепите его на роутере.
 
@@ -175,3 +192,4 @@ export IOS_DEVICE_ID=YOUR_DEVICE_ID # См.: xcrun devicectl list devices
 ### Подключение по QR-коду
 
 На зарегистрированном устройстве откройте **«Подключить устройство…»**. В мастере регистрации телефона нажмите **«Сканировать QR-код»**, разрешите доступ к камере, отсканируйте код и подтвердите регистрацию. QR можно показать и на телефоне, чтобы считать его с другого устройства. Если камера недоступна, выберите **«Считать QR из изображения…»**. Не передавайте QR посторонним: он даёт доступ к личному профилю. Он также содержит локальные IPv4-адреса: регистрация применяет ключ и адреса вместе. Для старых кодов подключения адреса вводятся вручную. На уже зарегистрированном телефоне сначала откройте **«Сменить профиль…»**.
+Для профилей `LC3.…` после регистрации одобрите телефон в разделе **«Устройства и доступ»** на устройстве владельца профиля. Перед одобрением сравните отпечатки.

@@ -38,13 +38,15 @@ def check(path):
     plain_russian = FENCES.sub('', russian)
     if not english.strip() or not re.search('[А-Яа-яЁё]', plain_russian):
         errors.append('both English and Russian versions must be present')
-    for label, missing in (
-        ('inline commands/references', set(INLINE_CODE.findall(plain_english)) - set(INLINE_CODE.findall(plain_russian))),
-        ('links', link_targets(english) - link_targets(russian)),
-        ('code blocks', commands(english) - commands(russian)),
+    for label, english_values, russian_values in (
+        ('inline commands/references', set(INLINE_CODE.findall(plain_english)), set(INLINE_CODE.findall(plain_russian))),
+        ('links', link_targets(english), link_targets(russian)),
+        ('code blocks', commands(english), commands(russian)),
     ):
-        if missing:
-            errors.append(f'Russian version is missing {label}: {sorted(missing)}')
+        for language, missing in (('Russian', english_values - russian_values),
+                                  ('English', russian_values - english_values)):
+            if missing:
+                errors.append(f'{language} version is missing {label}: {sorted(missing)}')
     if len(re.findall(r'^#+ ', english, re.M)) != len(re.findall(r'^#+ ', russian, re.M)):
         errors.append('English and Russian heading counts differ')
     for paragraph in plain_russian.split('\n\n'):

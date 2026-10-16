@@ -120,6 +120,10 @@ __pycache__/
 /service-command.json
 /devices.json
 /history/
+/exchange/
+/exchange.lock
+/outgoing/
+/outgoing.lock
 /receipts/
 # Exported invitations contain the personal profile secret; keep icon PNGs tracked
 LocalClipboard-connection*.png

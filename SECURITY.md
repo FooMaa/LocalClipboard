@@ -1,7 +1,7 @@
 # Security and release verification
 
 This is a source review and reproducible regression setup, not an independent
-penetration test or a certification. Review date: 2026-10-15, application 2.3.1.
+penetration test or a certification. Review date: 2026-10-16, application 2.4.0.
 
 ## Trust boundaries
 
@@ -166,8 +166,10 @@ public release process should review/pin the action revisions it trusts.
 The protocol now has authenticated received/copied receipts and bounded in-memory
 retry/deduplication state. Restarting a process can lose status and retry data.
 Resumable streaming and a durable per-peer outgoing log are not implemented.
-Android retains only the latest pending outgoing item for ten minutes and its
-latest received item. Local optional history is encrypted and bounded; plaintext
+Android retains separate encrypted outgoing posts for ten minutes (20 items / 64 MiB). Every platform
+keeps an encrypted Home inbox (20 items, 64 MiB, seven days); clipboard reading is
+opt-in on desktops and receiving never replaces the clipboard. Optional history
+is separate and encrypted; plaintext
 received files and bridge queues remain app-private. Diagnostics use an explicit
 allowlist and exclude names, addresses, content and keys.
 
@@ -175,7 +177,7 @@ allowlist and exclude names, addresses, content and keys.
 
 ## Русская версия
 
-Проверка исходников и регрессионные тесты от 15.10.2026 для версии 2.3.1 не заменяют
+Проверка исходников и регрессионные тесты от 16.10.2026 для версии 2.4.0 не заменяют
 независимый пентест и не являются сертификацией безопасности.
 
 Новые профили `LC3` используют личные ключи X25519 и подписанный владельцем реестр
@@ -275,7 +277,10 @@ Android 17 новее документированной матрицы Qt 6.11 
 Протокол подтверждает получение и копирование аутентифицированными ответами.
 Повторы и подавление дубликатов используют ограниченную память; перезапуск может
 потерять состояния. Потоковая передача с возобновлением и постоянный исходящий журнал
-не реализованы. Android хранит последний исходящий элемент до десяти минут и только
-последний входящий. Необязательная история шифруется и ограничивается; полученные
+не реализованы. Android хранит отдельные зашифрованные исходящие элементы до десяти
+минут (20 элементов / 64 МиБ). Все
+платформы хранят зашифрованную ленту на главной (20 элементов, 64 МиБ, семь дней).
+Чтение буфера на компьютерах включается отдельно; получение не заменяет буфер.
+Необязательная история отделена от ленты и шифруется; полученные
 файлы и очереди остаются в приватном хранилище. Диагностика формируется по разрешённому
 списку полей без имён, адресов, содержимого и ключей.

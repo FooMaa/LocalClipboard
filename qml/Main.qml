@@ -162,50 +162,12 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             currentIndex: ["home", "settings", "register", "pair", "files", "devices", "transfers", "history", "diagnostics"].indexOf(window.page)
-            ScrollPage {
-                objectName: "homeScroll"
-                BodyText { width: parent.width; text: qsTr("One clipboard,\nall your devices."); font.pixelSize: 32; font.weight: Font.DemiBold; lineHeight: 1.12 }
-                Card {
-                    width: parent.width
-                    Row {
-                        width: parent.width; spacing: 10
-                        Rectangle { width: 9; height: 9; radius: 5; color: controller.paused ? Theme.muted : Theme.positive; anchors.verticalCenter: parent.verticalCenter }
-                        BodyText { width: parent.width - 19; text: controller.paused ? qsTr("Synchronization paused") : controller.receiving ? qsTr("Ready to receive") : qsTr("Waiting for connection"); color: controller.paused ? Theme.muted : Theme.positive; font.weight: Font.DemiBold }
-                    }
-                    BodyText { width: parent.width; text: controller.ownerName + " · " + controller.deviceName; color: Theme.muted; font.pixelSize: 14 }
-                    BodyText { width: parent.width; visible: controller.managedAccess && controller.accessState !== "approved"; text: controller.accessState === "revoked" ? qsTr("This device's access was revoked. Register again and ask the owner to approve the new fingerprint.") : qsTr("Waiting for approval on the profile owner's device. Open Devices and access on both devices and compare fingerprints."); color: Theme.accent; font.pixelSize: 14 }
-                    ActionButton { width: parent.width; visible: controller.pendingClipboard; primary: true; text: qsTr("Copy received clipboard"); enabled: !controller.paused; onClicked: controller.copyReceivedClipboard() }
-                    BodyText { width: parent.width; visible: controller.pendingClipboard; text: qsTr("New content is waiting. It will be copied only when you choose Copy."); color: Theme.accent; font.pixelSize: 14 }
-                    ActionButton { width: parent.width; text: controller.busy ? qsTr("Preparing files…") : qsTr("Send clipboard"); primary: true; enabled: !controller.busy && !controller.paused && controller.sendingEnabled && controller.accessState === "approved"; onClicked: controller.sendClipboard() }
-                    ActionButton { width: parent.width; text: qsTr("Send files / photos…"); enabled: !controller.busy && !controller.paused && controller.sendingEnabled && controller.accessState === "approved"; onClicked: controller.pickFiles() }
-                }
-                ActionButton { width: parent.width; text: qsTr("Transfers"); onClicked: window.navigate("transfers") }
-                ActionButton { width: parent.width; text: window.pendingApprovals ? qsTr("Devices waiting for approval: %1").arg(window.pendingApprovals) : qsTr("Devices and access"); primary: window.pendingApprovals > 0; onClicked: window.navigate("devices") }
-                ActionButton { width: parent.width; text: qsTr("Local history"); onClicked: window.navigate("history") }
-                Row {
-                    width: parent.width
-                    BodyText { width: parent.width - 44; text: qsTr("Your devices"); font.pixelSize: 21; font.weight: Font.DemiBold }
-                    BodyText { width: 44; horizontalAlignment: Text.AlignRight; text: controller.peers.length; color: Theme.muted }
-                }
-                Card {
-                    width: parent.width
-                    visible: controller.peers.length === 0
-                    BodyText { width: parent.width; text: qsTr("Bring your devices together"); font.weight: Font.DemiBold }
-                    BodyText { width: parent.width; text: qsTr("Open LocalClipboard on another device, connect to this profile and use the same Wi-Fi."); color: Theme.muted; font.pixelSize: 14 }
-                    BodyText { width: parent.width; text: qsTr("On Mac, allow LocalClipboard under System Settings → Privacy & Security → Local Network. After scanning, approve the new device under Devices and access."); color: Theme.muted; font.pixelSize: 14 }
-                    ActionButton { width: parent.width; text: qsTr("Check network"); onClicked: window.navigate("diagnostics") }
-                    ActionButton { width: parent.width; text: qsTr("Connect device…"); onClicked: window.showPairing() }
-                }
-                Repeater {
-                    model: controller.peers
-                    Card {
-                        required property string modelData
-                        width: parent.width
-                        BodyText { width: parent.width; text: modelData; font.weight: Font.DemiBold }
-                        BodyText { width: parent.width; text: qsTr("Connected on your network"); color: Theme.positive; font.pixelSize: 13 }
-                    }
-                }
-                BodyText { width: parent.width; text: window.platformName === "android" ? qsTr("Received content appears in a notification. Tap Copy to put it on the clipboard. To send, open the app or use Share → LocalClipboard.") : platformName === "ios" ? qsTr("Keep LocalClipboard open to receive. Send with the clipboard button or Files / Photos. QR pairing also fills in the other device’s IP addresses.") : qsTr("Clipboard changes sync automatically. Closing this window keeps synchronization running. Use Quit in Settings or the tray to stop it."); color: Theme.muted; font.pixelSize: 14 }
+            ExchangePage {
+                controller: window.controller
+                platformName: window.platformName
+                pendingApprovals: window.pendingApprovals
+                onNavigate: function(destination) { window.navigate(destination) }
+                onPairRequested: window.showPairing()
             }
             ScrollPage {
                 objectName: "settingsScroll"
@@ -227,8 +189,18 @@ ApplicationWindow {
                         onToggled: controller.setPaused(checked)
                     }
                     ActionButton { width: parent.width; text: qsTr("Pause for 15 minutes"); onClicked: controller.pauseFor15Minutes() }
-                    SettingSwitch { width: parent.width; text: qsTr("Send clipboard changes"); checked: controller.sendingEnabled; onToggled: controller.setSendingEnabled(checked) }
-                    SettingSwitch { width: parent.width; text: qsTr("Receive clipboard changes"); checked: controller.receivingEnabled; onToggled: controller.setReceivingEnabled(checked) }
+                    SettingSwitch {
+                        objectName: "automaticClipboardSwitch"
+                        width: parent.width
+                        visible: controller.automaticClipboardSupported
+                        text: qsTr("Automatically read and send clipboard")
+                        checked: controller.automaticClipboard
+                        onToggled: controller.setAutomaticClipboard(checked)
+                    }
+                    BodyText { width: parent.width; text: qsTr("Clipboard reading is off by default. Received items stay on Home until you choose Copy."); color: Theme.muted; font.pixelSize: 14 }
+                    ActionButton { width: parent.width; text: qsTr("Send from clipboard"); enabled: !controller.busy && !controller.paused && controller.sendingEnabled; onClicked: controller.sendClipboard() }
+                    SettingSwitch { width: parent.width; text: qsTr("Allow sending"); checked: controller.sendingEnabled; onToggled: controller.setSendingEnabled(checked) }
+                    SettingSwitch { width: parent.width; text: qsTr("Allow receiving"); checked: controller.receivingEnabled; onToggled: controller.setReceivingEnabled(checked) }
                     SettingSwitch {
                         objectName: "autostartSwitch"
                         width: parent.width

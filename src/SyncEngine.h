@@ -49,6 +49,7 @@ private:
     struct Job { QString id, peer, name, state, error, description; int progress = 0; qint64 time = 0; SocketGuard socket; QString kind; int items = 0; };
     void updateJob(const QString &id, const QString &state, int progress, const QString &error = {});
     bool sendControl(const Peer &peer, const QJsonObject &control);
+    void sendPendingReceipts();
     void loadDevices();
     void saveDevices();
     void discover();

@@ -8,6 +8,8 @@
 #include "ConnectionInfo.h"
 #include "DeviceAccess.h"
 #include "LocalHistory.h"
+#include "ExchangeStore.h"
+#include "OutgoingQueue.h"
 #include <QDateTime>
 #include <QStandardPaths>
 #include <QBuffer>
@@ -44,6 +46,86 @@ private slots:
         QCoreApplication::setApplicationName("LocalClipboardCoreTests-" + QUuid::createUuid().toString(QUuid::WithoutBraces));
     }
     void cleanupTestCase() { QDir(Profile::dataDirectory()).removeRecursively(); }
+    void clipboardReadingIsOptInIncludingExistingProfiles() {
+        Profile p = profile(); QVERIFY(!p.automaticClipboard);
+        QTemporaryDir directory; QVERIFY(p.save(nullptr, directory.path()));
+        QVERIFY(!Profile::load(directory.path()).automaticClipboard);
+        p.automaticClipboard = true; QVERIFY(p.save(nullptr, directory.path()));
+        QVERIFY(Profile::load(directory.path()).automaticClipboard);
+        QFile file(directory.filePath("profile.json")); QVERIFY(file.open(QIODevice::ReadOnly));
+        auto obj = QJsonDocument::fromJson(file.readAll()).object(); file.close();
+        obj.remove("automaticClipboard"); // Upgrade from releases that always watched the clipboard.
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate)); file.write(QJsonDocument(obj).toJson()); file.close();
+        QVERIFY(!Profile::load(directory.path()).automaticClipboard);
+    }
+    void exchangeIsEncryptedBoundedAndIsolatedFromHistoryAndOtherDevices() {
+        ExchangeStore::clear();
+        Profile p = profile(); p.createManaged();
+        const auto id = ExchangeStore::record(p, text("private shared note"), "sender", "transfer");
+        QVERIFY(!id.isEmpty());
+        QVERIFY(!p.historyEnabled); QCOMPARE(LocalHistory::entries(p).size(), 0);
+        QCOMPARE(ExchangeStore::entries(p).size(), 1);
+        QCOMPARE(ExchangeStore::item(p, id).value("payload").toObject(), text("private shared note"));
+        QFile file(QDir(Profile::dataDirectory()).filePath("exchange/" + id)); QVERIFY(file.open(QIODevice::ReadOnly));
+        QVERIFY(!file.readAll().contains("private shared note"));
+        Profile other = profile(); QVERIFY(other.join(p.invitation()));
+        QVERIFY(ExchangeStore::entries(other).isEmpty());
+        QVERIFY(ExchangeStore::item(p, "../profile.json").isEmpty());
+        QVERIFY(ExchangeStore::record(p, QJsonObject{{"kind", "unknown"}}).isEmpty());
+        for (int i = 0; i < ExchangeStore::MaxItems + 2; ++i) {
+            QVERIFY(!ExchangeStore::record(p, text(QString::number(i))).isEmpty());
+            QTest::qWait(1);
+        }
+        QCOMPARE(ExchangeStore::entries(p).size(), ExchangeStore::MaxItems);
+        QVERIFY(ExchangeStore::item(p, id).isEmpty());
+        ExchangeStore::clear(); QVERIFY(ExchangeStore::entries(p).isEmpty());
+    }
+    void outgoingQueuePreservesSeparatePostsAndDoesNotDependOnTheHomeList() {
+        OutgoingQueue::clear(); Profile p = profile();
+        for (int i = 0; i < OutgoingQueue::MaxItems; ++i) {
+            QVERIFY(OutgoingQueue::enqueue(p, text("private post " + QString::number(i))));
+            QTest::qWait(1);
+        }
+        QVERIFY(!OutgoingQueue::enqueue(p, text("queue is full")));
+        ExchangeStore::clear(); // Clearing Home must not silently cancel queued sends.
+        for (int i = 0; i < OutgoingQueue::MaxItems; ++i) {
+            const auto next = OutgoingQueue::next(p); QVERIFY(!next.isEmpty());
+            QCOMPARE(next.value("payload").toObject(), text("private post " + QString::number(i)));
+            const auto id = next.value("id").toString();
+            QFile file(QDir(Profile::dataDirectory()).filePath("outgoing/" + id)); QVERIFY(file.open(QIODevice::ReadOnly));
+            QVERIFY(!file.readAll().contains("private post")); file.close();
+            OutgoingQueue::remove("../profile.json"); QVERIFY(file.exists());
+            OutgoingQueue::remove(id);
+        }
+        QVERIFY(OutgoingQueue::next(p).isEmpty());
+        QVERIFY(OutgoingQueue::enqueue(p, text("expires")));
+        const auto id = OutgoingQueue::next(p).value("id").toString();
+        QDir dir(QDir(Profile::dataDirectory()).filePath("outgoing"));
+        const auto expired = QString::number(QDateTime::currentMSecsSinceEpoch() - 601000) + id.mid(13);
+        QVERIFY(dir.rename(id, expired)); OutgoingQueue::prune(); QVERIFY(!dir.exists(expired));
+        QVERIFY(OutgoingQueue::enqueue(p, text("other profile cannot send")));
+        QVERIFY(OutgoingQueue::next(profile()).isEmpty());
+        OutgoingQueue::clear();
+    }
+    void storedPayloadsKeepTheirFormatAndCannotMoveBetweenStores() {
+        ExchangeStore::clear();
+        OutgoingQueue::clear();
+        Profile p = profile(); p.createManaged();
+        Profile key = p; key.key = p.deviceSecret;
+        const auto id = QString::number(QDateTime::currentMSecsSinceEpoch()) + "-"
+            + QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QJsonObject item{{"group", p.groupId()}, {"payload", text("previously stored")}};
+        const auto wire = SecureProtocol::seal(key, QJsonDocument(item).toJson(QJsonDocument::Compact),
+                                              "LocalClipboard/exchange/v1/" + id.toUtf8());
+        const QDir directory(Profile::dataDirectory());
+        QFile file(directory.filePath("exchange/" + id));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(wire), qint64(wire.size())); file.close();
+        QCOMPARE(ExchangeStore::item(p, id), item);
+        QVERIFY(file.copy(directory.filePath("outgoing/" + id)));
+        QVERIFY(OutgoingQueue::next(p).isEmpty());
+        ExchangeStore::clear();
+    }
     void managedDevicesHavePairwiseKeysAndSignedRevocation() {
         Profile owner = profile(); owner.createManaged();
         Profile phone = profile(); QVERIFY(phone.join(owner.invitation()));

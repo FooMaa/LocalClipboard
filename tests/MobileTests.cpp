@@ -8,7 +8,12 @@
 #include "FileStorage.h"
 #include "DeviceAccess.h"
 #include "LocalHistory.h"
+#include "ExchangeStore.h"
+#include "ClipboardPayload.h"
 #include <QClipboard>
+#include <QMimeData>
+#include <QBuffer>
+#include <QJsonArray>
 #include <QApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -27,6 +32,15 @@
 #include <QUuid>
 #include <memory>
 
+class ObservedClipboard final : public QMimeData {
+public:
+    mutable int reads = 0;
+protected:
+    QVariant retrieveData(const QString &mimeType, QMetaType type) const override {
+        ++reads; return QMimeData::retrieveData(mimeType, type);
+    }
+};
+
 class MobileTests final : public QObject {
     Q_OBJECT
     QTemporaryDir preferences;
@@ -34,8 +48,29 @@ class MobileTests final : public QObject {
         Profile p; p.deviceId = QUuid::createUuid().toString(QUuid::WithoutBraces);
         p.ownerName = QString::fromUtf8("Антон"); p.deviceName = "Galaxy S25"; p.autostart = false; p.create(); return p;
     }
+    static QQuickItem *visualItem(QQuickItem *root, const QString &name) {
+        if (root->objectName() == name) return root;
+        for (auto *child : root->childItems()) if (auto *found = visualItem(child, name)) return found;
+        return nullptr;
+    }
 private slots:
     void initTestCase() { I18n::initialize("en", preferences.path()); }
+    void unchangedExchangeDoesNotRebuildTheHomeList() {
+        ExchangeStore::clear();
+        const auto p = profile();
+        const QJsonObject payload{{"kind", "text"}, {"text", "Keep this card stable"}};
+        QVERIFY(!ExchangeStore::record(p, payload).isEmpty());
+        AppController controller(p);
+        QTRY_COMPARE(controller.exchangeItems().size(), 1);
+        QTRY_VERIFY(!controller.loadingExchange());
+        QSignalSpy changes(&controller, &AppController::exchangeChanged);
+        controller.refreshExchange();
+        QTRY_VERIFY(!controller.loadingExchange());
+        QCOMPARE(changes.size(), 0);
+        controller.clearExchange();
+        QTRY_VERIFY(controller.exchangeItems().isEmpty());
+        QCOMPARE(changes.size(), 1);
+    }
     void screensFitAndTranslate_data() {
         QTest::addColumn<int>("width"); QTest::addColumn<QString>("language"); QTest::addColumn<QString>("platform");
         for (const auto &platform : {QStringLiteral("android"), QStringLiteral("ios"), QStringLiteral("osx")})
@@ -204,11 +239,15 @@ private slots:
         window->setProperty("page", "settings"); window->close();
         QVERIFY(!window->isVisible()); QVERIFY(engine->port());
         const QJsonObject payload{{"kind", "text"}, {"text", "background Quick clipboard"}, {"html", ""}};
+        QApplication::clipboard()->setText("keep my clipboard");
         engine->received(payload);
+        QTRY_VERIFY(!application.controller()->exchangeItems().isEmpty());
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("keep my clipboard"));
+        application.controller()->copyReceivedClipboard();
+        QTRY_VERIFY(!application.controller()->busy());
         QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("background Quick clipboard"));
-        QApplication::clipboard()->clear();
-        engine->received(payload);
-        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("background Quick clipboard"));
+        application.controller()->clearExchange();
+        QTRY_VERIFY(application.controller()->exchangeItems().isEmpty());
         application.showSettings(); QVERIFY(window->isVisible());
         window->showMinimized(); application.showSettings(); QVERIFY(window->visibility() != QWindow::Minimized);
     }
@@ -303,6 +342,89 @@ private slots:
         QVERIFY(!controller.authorizeDevice(phone.deviceId, false));
         const auto oldId = phone.deviceId;
         QVERIFY(phone.join(controller.invitation())); QVERIFY(phone.deviceId != oldId);
+    }
+    void manualTextSendingDoesNotReadClipboardAndAutomaticReadingIsOptIn() {
+        ExchangeStore::clear();
+        auto *clipboard = new ObservedClipboard;
+        clipboard->setText("private clipboard"); QApplication::clipboard()->setMimeData(clipboard);
+        clipboard->reads = 0;
+        auto p = profile(); AppController controller(p);
+        QCOMPARE(clipboard->reads, 0);
+        auto peer = profile(); peer.key = p.key;
+        SyncEngine remote(peer, nullptr, 0, 0);
+        auto *engine = controller.findChild<SyncEngine *>(); QVERIFY(engine);
+        remote.contactTcp(QHostAddress::LocalHost, engine->port());
+        QTRY_COMPARE(controller.peers().size(), 1);
+        QSignalSpy sent(&remote, &SyncEngine::received);
+        QVERIFY(controller.sendText("a deliberately shared note"));
+        QTRY_COMPARE(sent.size(), 1);
+        QCOMPARE(clipboard->reads, 0);
+        QCOMPARE(sent.first().first().toJsonObject().value("text").toString(), QStringLiteral("a deliberately shared note"));
+        QApplication::clipboard()->setText("do not send this");
+        QTest::qWait(50); QCOMPARE(sent.size(), 1);
+        controller.setAutomaticClipboard(true); QVERIFY(controller.automaticClipboard());
+        QApplication::clipboard()->setText("automatically shared after opting in");
+        QTRY_COMPARE(sent.size(), 2);
+        controller.setAutomaticClipboard(false);
+        QApplication::clipboard()->setText("private again");
+        QTest::qWait(50); QCOMPARE(sent.size(), 2);
+        QTRY_VERIFY(controller.exchangeItems().size() >= 2);
+        controller.clearExchange(); QTRY_VERIFY(controller.exchangeItems().isEmpty());
+    }
+    void receivedItemsWaitForCopy_data() {
+        QTest::addColumn<QString>("kind");
+        for (const auto &kind : {QStringLiteral("text"), QStringLiteral("image"), QStringLiteral("files")})
+            QTest::newRow(qPrintable(kind)) << kind;
+    }
+    void receivedItemsWaitForCopy() {
+        QFETCH(QString, kind);
+        ExchangeStore::clear();
+        auto p = profile(); AppController controller(p);
+        auto peer = profile(); peer.key = p.key;
+        SyncEngine remote(peer, nullptr, 0, 0);
+        auto *engine = controller.findChild<SyncEngine *>(); QVERIFY(engine);
+        remote.contactTcp(QHostAddress::LocalHost, engine->port());
+        QTRY_COMPARE(remote.peerDescriptions().size(), 1);
+        QJsonObject payload{{"kind", "text"}, {"text", "incoming note"}, {"html", ""}};
+        if (kind == "image") {
+            QImage image(24, 18, QImage::Format_RGB32); image.fill(Qt::blue);
+            QByteArray png; QBuffer buffer(&png); buffer.open(QIODevice::WriteOnly); QVERIFY(image.save(&buffer, "PNG"));
+            payload = {{"kind", "image"}, {"png", QString::fromLatin1(png.toBase64())}};
+        } else if (kind == "files") {
+            payload = {{"kind", "files"}, {"files", QJsonArray{QJsonObject{{"name", "note.txt"}, {"size", 4}, {"data", "dGVzdA=="}}}}};
+        }
+        QApplication::clipboard()->setText("keep my clipboard");
+        QVERIFY(remote.send(payload));
+        QTRY_COMPARE(controller.exchangeItems().size(), 1);
+        QTRY_COMPARE(remote.transfers().first().toMap().value("state").toString(), QStringLiteral("received"));
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("keep my clipboard"));
+        QVERIFY(!controller.historyEnabled()); QVERIFY(controller.history().isEmpty());
+        // The home page must show incoming content, including photo thumbnails.
+        QQmlApplicationEngine ui; configureAppEngine(ui, controller);
+        QSignalSpy warnings(&ui, &QQmlEngine::warnings);
+        ui.load(QUrl("qrc:/app/Main.qml")); QVERIFY(!ui.rootObjects().isEmpty());
+        QTest::qWait(40);
+        if (kind == "image") QVERIFY(!controller.exchangeItems().first().toMap().value("thumbnail").toString().isEmpty());
+        controller.setPaused(true); // Local copying remains available while network exchange is paused.
+        const auto id = controller.exchangeItems().first().toMap().value("id").toString();
+        auto *window = qobject_cast<QQuickWindow *>(ui.rootObjects().first()); QVERIFY(window);
+        auto *button = visualItem(window->contentItem(), "copyExchangeButton"); QVERIFY(button);
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QTRY_VERIFY(!controller.busy());
+        const auto *mime = QApplication::clipboard()->mimeData(); QVERIFY(mime);
+        if (kind == "text") QCOMPARE(mime->text(), QStringLiteral("incoming note"));
+        else if (kind == "image") QCOMPARE(qvariant_cast<QImage>(mime->imageData()).size(), QSize(24, 18));
+        else {
+            QCOMPARE(mime->urls().size(), 1);
+            const auto path = mime->urls().first().toLocalFile();
+            QFile file(path); QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), QByteArray("test")); file.close();
+            QApplication::clipboard()->clear(); QVERIFY(QFile::remove(path)); QDir().rmdir(QFileInfo(path).absolutePath());
+        }
+        QCOMPARE(warnings.size(), 0);
+        controller.setPaused(false);
+        remote.contactTcp(QHostAddress::LocalHost, engine->port());
+        QTRY_COMPARE(remote.transfers().first().toMap().value("state").toString(), QStringLiteral("copied"));
+        controller.clearExchange(); QTRY_VERIFY(controller.exchangeItems().isEmpty());
     }
     void localHistoryCanBeCopiedWhileSynchronizationIsPaused() {
         auto p = profile(); p.historyEnabled = true; p.paused = true;

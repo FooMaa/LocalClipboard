@@ -55,8 +55,8 @@ After installing the dependencies above, run:
 
 Register the phone with your personal profile and permit notifications. The service
 receives text/images/files in the background; tap **Copy** in its notification or
-**Copy received clipboard** in the app to apply the latest item. Opening the app alone does not copy it. Android 10+ restricts reading the clipboard to the focused app, so tap
-**Send current clipboard** while open or use **Share → LocalClipboard** from another
+**Copy** on the desired item on **Home** to apply it. Opening the app alone does not copy it. Android 10+ restricts reading the clipboard to the focused app, so tap
+**Settings → Send from clipboard** while open or use **Share → LocalClipboard** from another
 app. Release APKs require signing; CI builds an installable debug APK and an adb
 installer ZIP. Device testing is required to verify clipboard, LAN, reboot and
 manufacturer battery-management behavior on your Android version.
@@ -144,7 +144,7 @@ export ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
 ./scripts/package -t apk
 ```
 
-Зарегистрируйте телефон в личном профиле и разрешите уведомления. Служба принимает текст, изображения и файлы в фоне; нажмите «Скопировать» в уведомлении или в приложении, чтобы поместить последний элемент в буфер. Простое открытие приложения не копирует его. Android 10+ позволяет читать буфер только приложению в фокусе, поэтому отправляйте текущий буфер из открытого приложения либо используйте **«Поделиться → LocalClipboard»** из другого приложения. Выпускные APK требуют подписи; CI создаёт устанавливаемый отладочный APK и ZIP установщика через adb. На реальном устройстве нужно проверить буфер, локальную сеть, перезагрузку и управление батареей производителем на вашей версии Android.
+Зарегистрируйте телефон в личном профиле и разрешите уведомления. Служба принимает текст, изображения и файлы в фоне; нажмите «Скопировать» в уведомлении или у нужного элемента на «Главной», чтобы поместить его в буфер. Простое открытие приложения не копирует его. Android 10+ позволяет читать буфер только приложению в фокусе, поэтому выберите **«Настройки → Отправить из буфера»** в открытом приложении либо используйте **«Поделиться → LocalClipboard»** из другого приложения. Выпускные APK требуют подписи; CI создаёт устанавливаемый отладочный APK и ZIP установщика через adb. На реальном устройстве нужно проверить буфер, локальную сеть, перезагрузку и управление батареей производителем на вашей версии Android.
 
 ### Подпись отладочных сборок Android
 

@@ -5,8 +5,8 @@
 **Transfers** shows the most recent in-process transfers per device: Sending,
 Received on device, Copied to clipboard, Failed or Cancelled. The received state
 requires an authenticated receipt. The copied state requires successful application
-to the clipboard. Android confirms receipt after saving its inbox, then confirms
-copying after the user chooses Copy. iOS must remain open to receive.
+to the clipboard. Every platform confirms receipt after saving its encrypted Home
+inbox, then confirms copying only after the user chooses Copy. iOS must remain open to receive.
 
 The progress bar measures bytes handed to the socket, not remote disk progress.
 Cancellation stops pending/network work; it cannot recall content already received.
@@ -108,8 +108,8 @@ uses the existing Xcode team workflow.
 Экран **Передачи** показывает последние передачи текущего процесса по устройствам:
 «Отправляется», «Получено устройством», «Скопировано в буфер», «Ошибка», «Отменено».
 Получение подтверждается аутентифицированным ответом. Копирование подтверждается
-после применения к буферу. Android подтверждает получение после сохранения входящей
-очереди, а копирование — после нажатия «Копировать». На iOS приложение должно быть открыто.
+после применения к буферу. Все платформы подтверждают получение после сохранения
+в зашифрованную ленту на главной, а копирование — после нажатия «Скопировать». На iOS приложение должно быть открыто.
 
 Прогресс измеряет байты, переданные сокету, а не запись на удалённый диск. Отмена
 останавливает ожидание и сетевую работу, но не отзывает уже полученные данные. Повтор

@@ -27,6 +27,8 @@ public:
     bool setPaused(bool paused);
     bool setAutostart(bool enabled);
     void sendClipboard(bool explicitSend = true);
+    bool sendText(const QString &text);
+    void copyExchangeItem(const QString &id);
     void sendFiles(const QList<QUrl> &urls);
     void importFiles(const QList<QUrl> &urls);
     void report(const QString &message);
@@ -46,11 +48,12 @@ signals:
     void shareChanged();
     void transfersChanged();
     void historyChanged();
+    void exchangeChanged();
 private:
     void startEngine();
     void refresh();
-    void pollAndroidInbox();
-    void sendPayload(const QJsonObject &payload);
+    void copyPayload(const std::function<QJsonObject()> &load);
+    bool sendPayload(const QJsonObject &payload);
     void apply(const QJsonObject &payload);
     void setBusy(bool busy);
     void completeReceived(const QString &state, const QString &error = {});
@@ -63,8 +66,7 @@ private:
     QString m_message, m_lastHash;
     QJsonObject m_sharedPayload;
     quint64 m_revision = 0;
-    bool m_applying = false, m_loadingInbox = false, m_preparingSend = false;
+    bool m_applying = false, m_preparingSend = false;
     bool m_loadingPeers = false, m_loadingShares = false;
     bool m_pendingInbox = false;
-    std::function<void()> m_pendingApply;
 };

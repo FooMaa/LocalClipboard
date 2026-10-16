@@ -3,7 +3,7 @@
 Monocypher 4.0.3, unmodified `src/monocypher.c`, `src/monocypher.h` and
 `LICENCE.md` from https://github.com/LoupVaillant/Monocypher/tree/4.0.3.
 Vendored so all platforms build offline without a separate crypto runtime.
-See LICENCE.md for BSD-2-Clause / CC0 licensing.
+See [LICENCE.md](LICENCE.md) for BSD-2-Clause / CC0 licensing.
 
 Upstream commit: `ab2b16dd619ad5f6979a4fbe69cfa324a6fcc35f`.
 SHA-256 of the unmodified vendored files:

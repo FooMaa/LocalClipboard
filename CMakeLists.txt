@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21.1)
-project(LocalClipboard VERSION 2.3.1 LANGUAGES C CXX)
+project(LocalClipboard VERSION 2.4.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_OBJCXX_STANDARD 17)
@@ -53,6 +53,9 @@ add_library(monocypher STATIC third_party/monocypher/monocypher.c)
 set_target_properties(monocypher PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(monocypher PUBLIC third_party/monocypher)
 add_library(clipboard_core STATIC
+    src/ExchangeStore.h src/ExchangeStore.cpp
+    src/PayloadStorage.h src/PayloadStorage.cpp
+    src/OutgoingQueue.h src/OutgoingQueue.cpp
     src/LocalHistory.h src/LocalHistory.cpp src/DeviceAccess.h src/DeviceAccess.cpp src/Profile.h src/Profile.cpp src/SecretStore.h src/SecretStore.cpp src/SecureProtocol.h src/SecureProtocol.cpp
     src/ClipboardPayload.h src/ClipboardPayload.cpp src/SyncEngine.h src/SyncEngine.cpp
     src/PendingFiles.h src/PendingFiles.cpp src/FileStorage.h src/FileStorage.cpp
@@ -112,7 +115,7 @@ if(IOS)
     set_target_properties(LocalClipboard PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_GUI_IDENTIFIER "${LOCALCLIPBOARD_IOS_BUNDLE_ID}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "20301"
+        MACOSX_BUNDLE_BUNDLE_VERSION "20400"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist"
         XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME AppIcon
@@ -129,7 +132,7 @@ elseif(ANDROID)
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
         QT_ANDROID_TARGET_SDK_VERSION 36
         QT_ANDROID_MIN_SDK_VERSION 28
-        QT_ANDROID_VERSION_CODE 20301
+        QT_ANDROID_VERSION_CODE 20400
         QT_ANDROID_VERSION_NAME "${PROJECT_VERSION}"
     )
 elseif(APPLE)
@@ -155,7 +158,7 @@ if(NOT ANDROID AND NOT IOS)
     target_sources(clipboard_ui PRIVATE src/Uninstall.h src/Uninstall.cpp)
 endif()
 target_link_libraries(clipboard_ui PUBLIC clipboard_session clipboard_qr Qt6::Quick Qt6::QuickControls2)
-set(LOCALCLIPBOARD_QML_FILES qml/Main.qml qml/Navigation.qml qml/BodyText.qml qml/ActionButton.qml qml/Editor.qml
+set(LOCALCLIPBOARD_QML_FILES qml/Main.qml qml/ExchangePage.qml qml/Navigation.qml qml/BodyText.qml qml/ActionButton.qml qml/Editor.qml
     qml/DevicesPage.qml qml/TransfersPage.qml qml/HistoryPage.qml qml/DiagnosticsPage.qml qml/Card.qml qml/ScrollPage.qml qml/SettingSwitch.qml qml/Theme.js)
 target_link_libraries(LocalClipboard PRIVATE clipboard_ui)
 qt_add_resources(LocalClipboard mobile_ui PREFIX "/app" BASE qml FILES ${LOCALCLIPBOARD_QML_FILES})

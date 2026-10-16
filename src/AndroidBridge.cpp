@@ -6,6 +6,8 @@
 #include "SyncEngine.h"
 #include "DeviceAccess.h"
 #include "LocalHistory.h"
+#include "ExchangeStore.h"
+#include "OutgoingQueue.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -63,31 +65,18 @@ void AndroidBridge::stopService() {
     QJniObject::callStaticMethod<void>(Bridge, "stopSync", "(Landroid/content/Context;)V", context.object());
 }
 void AndroidBridge::queueOutgoing(const Profile &p, const QJsonObject &payload, QObject *owner, const std::function<void(const QString &)> &done) {
-    // Serialize writes so a slow older transfer cannot replace a newer outgoing clipboard.
+    // Preserve separate manual posts, including multiple sends between service polls.
     static QThreadPool pool;
     pool.setMaxThreadCount(1);
     Async::run(owner, [p, payload] {
         QString error;
         const auto current = Profile::load();
-        if (current.groupId() != p.groupId() || current.isPaused() || !current.sendingEnabled) return QStringLiteral("Synchronization is paused or sending is disabled.");
-        if (ClipboardPayload::validate(payload, &error))
-            write("outbox.json", QJsonObject{{"group", p.groupId()}, {"time", double(QDateTime::currentSecsSinceEpoch())}, {"payload", payload}}, &error);
+        if (current.groupId() != p.groupId() || current.deviceId != p.deviceId || current.deviceSecret != p.deviceSecret
+            || current.isPaused() || !current.sendingEnabled) return QStringLiteral("Synchronization is paused or sending is disabled.");
+        if (ClipboardPayload::validate(payload, &error) && !OutgoingQueue::enqueue(p, payload))
+            error = "Outgoing queue is full or unavailable. Try again shortly.";
         return error;
     }, done, &pool);
-}
-void AndroidBridge::consumeInbox(const Profile &p, QObject *owner, const std::function<void(const QJsonObject &)> &apply) {
-    Async::run(owner, [p] {
-        if (p.isPaused() || !p.receivingEnabled) return QJsonObject();
-        // Rename first so a concurrent delivery cannot be deleted with the previous item.
-        const QString claimed = "inbox-claimed.json";
-        // Keep a claimed item until applied, including across Activity/process restarts.
-        if (!QFile::exists(path(claimed)) && !QFile::rename(path("inbox.json"), path(claimed))) return QJsonObject();
-        const QJsonObject obj = read(claimed);
-        if (obj.value("group").toString() == p.groupId() && !obj.value("payload").toObject().isEmpty())
-            return obj.value("payload").toObject();
-        QFile::remove(path(claimed));
-        return QJsonObject();
-    }, apply);
 }
 bool AndroidBridge::hasPendingInbox() { return QFile::exists(path("inbox.json")) || QFile::exists(path("inbox-claimed.json")); }
 bool AndroidBridge::takeCopyRequest() { return QJniObject::callStaticMethod<jboolean>(Bridge, "takeCopyRequest", "()Z"); }
@@ -103,15 +92,15 @@ bool AndroidBridge::serviceCommand(const QString &command, const QString &id, bo
     if (QFile::exists(path("service-command.json"))) return false;
     return write("service-command.json", QJsonObject{{"command", command}, {"id", id}, {"flag", flag}});
 }
-void AndroidBridge::acknowledgeInbox(const QString &state, const QString &error) {
-    const auto claimed = read("inbox-claimed.json");
-    const QString id = claimed.value("id").toString(), sender = claimed.value("sender").toString();
-    if (!id.isEmpty()) {
-        QDir().mkpath(path("receipts"));
-        const auto name = QString::fromLatin1(QCryptographicHash::hash(id.toUtf8(), QCryptographicHash::Sha256).toHex());
-        write("receipts/" + name + ".json", QJsonObject{{"id", id}, {"sender", sender}, {"state", state}, {"error", error}, {"group", claimed.value("group")}});
+void AndroidBridge::acknowledgeTransfer(const Profile &p, const QString &id, const QString &sender) {
+    if (id.isEmpty() || sender.isEmpty()) return;
+    QDir().mkpath(path("receipts"));
+    const auto name = QString::fromLatin1(QCryptographicHash::hash(id.toUtf8(), QCryptographicHash::Sha256).toHex());
+    write("receipts/" + name + ".json", QJsonObject{{"id", id}, {"sender", sender}, {"state", "copied"}, {"group", p.groupId()}});
+    for (const QString &file : {QStringLiteral("inbox.json"), QStringLiteral("inbox-claimed.json")}) {
+        const auto item = read(file);
+        if (item.value("id").toString() == id && item.value("group").toString() == p.groupId()) QFile::remove(path(file));
     }
-    QFile::remove(path("inbox-claimed.json"));
     if (!hasPendingInbox()) QJniObject::callStaticMethod<void>(Bridge, "clearReceivedNotification", "(Landroid/content/Context;)V", QNativeInterface::QAndroidApplication::context().object());
 }
 bool AndroidBridge::consumeShares(QObject *owner, const std::function<void(const QJsonObject &)> &send, const std::function<void(const QString &)> &error) {
@@ -176,6 +165,14 @@ int AndroidBridge::runService(QCoreApplication &app) {
     if (!lock.tryLock()) return 0;
     Profile profile = Profile::load();
     if (!profile.registered()) return 0;
+    // Migrate the previous release's single pending payload into the Home inbox.
+    for (const QString &file : {QStringLiteral("inbox.json"), QStringLiteral("inbox-claimed.json")}) {
+        auto item = read(file);
+        if (item.value("group").toString() == profile.groupId() && !item.value("payload").toObject().isEmpty()
+            && !ExchangeStore::record(profile, item.value("payload").toObject(), item.value("sender").toString(), item.value("id").toString()).isEmpty()) {
+            item.remove("payload"); write(file, item);
+        }
+    }
     SyncEngine *engine = nullptr;
     QString incomingId, incomingSender, serviceMessage;
     bool stateDirty = true;
@@ -189,7 +186,8 @@ int AndroidBridge::runService(QCoreApplication &app) {
         QObject::connect(engine, &SyncEngine::transfersChanged, &app, [&] { stateDirty = true; });
         QObject::connect(engine, &SyncEngine::received, &app, [&](const QJsonObject &payload) {
             QString error;
-            const bool saved = write("inbox.json", QJsonObject{{"group", profile.groupId()}, {"payload", payload}, {"id", incomingId}, {"sender", incomingSender}}, &error);
+            const bool saved = !ExchangeStore::record(profile, payload, incomingSender, incomingId).isEmpty();
+            if (saved) write("inbox.json", QJsonObject{{"group", profile.groupId()}, {"id", incomingId}, {"sender", incomingSender}}, &error);
             engine->completeIncoming(incomingId, incomingSender, saved ? "received" : "failed", saved ? QString() : "Could not store received content.");
             if (saved) { LocalHistory::record(profile, payload); notify(); }
             incomingId.clear(); incomingSender.clear();
@@ -232,6 +230,12 @@ int AndroidBridge::runService(QCoreApplication &app) {
         }
         const qint64 now = QDateTime::currentSecsSinceEpoch();
         const QStringList descriptions = engine->peerDescriptions();
+        OutgoingQueue::prune();
+        if (!profile.sendingEnabled) OutgoingQueue::clear();
+        else if (!profile.isPaused() && !descriptions.isEmpty()) {
+            const auto next = OutgoingQueue::next(profile);
+            if (!next.isEmpty() && engine->send(next.value("payload").toObject())) OutgoingQueue::remove(next.value("id").toString());
+        }
         // Offline polling must not parse a potentially 48 MiB document every second.
         const QFileInfo queued(path("outbox.json"));
         if (queued.exists() && queued.lastModified().secsTo(QDateTime::currentDateTime()) > 600)
